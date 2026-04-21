@@ -27,6 +27,8 @@
     overflow:auto;
     box-sizing:border-box;
     padding-top:60px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   #stage{
@@ -173,6 +175,10 @@ input.slashToggle:checked::after{
   #toast.show{ opacity:1; }
 
   #toggleViewButton{ background:#111; color:#fff; border:1px solid #111; }
+  #zoomOutBtn,#zoomInBtn{ background:#fff; color:#111; border:1px solid #111; min-width:38px; padding:8px 10px; }
+
+  /* iPad / touch drawing support */
+  #gridCanvas, #uiCanvas, #imgCanvas, #game-container{ touch-action:none; }
 </style>
 </head>
 <body>
@@ -220,6 +226,8 @@ input.slashToggle:checked::after{
     <button id="resetHeatmapBtn" class="danger" title="清零热力计数（不会影响当前图案内容）">热力清零</button>
     <button id="clearXBtn" class="danger" title="会弹确认，且可Cmd+Z撤销">清空所有</button>
     <button id="toggleViewButton">局部</button>
+    <button id="zoomOutBtn" title="缩小局部视图">-</button>
+    <button id="zoomInBtn" title="放大局部视图">+</button>
 
     <div class="sep"></div>
 
@@ -618,33 +626,7 @@ const toggleViewBtn = document.getElementById('toggleViewButton');
 function updateViewBtn(){
   toggleViewBtn.textContent = isFullView ? '全局' : '局部';
 }
-toggleViewBtn.addEventListener('click', ()=>{
-  if (isFullView){
-    // 退出全局：恢复滚动/居中
-    container.style.overflow='auto';
-    stage.style.transform='scale(1)';
-    stage.style.transformOrigin='top left';
-    stage.style.margin='auto';
-  }else{
-    // 进入全局：使用容器真实可见高度（扣除 paddingTop），确保底部不被裁切
-    const cs = getComputedStyle(container);
-    const padTop = parseFloat(cs.paddingTop) || 0;
-    const padBottom = parseFloat(cs.paddingBottom) || 0;
-    const vw = container.clientWidth;
-    const vh = Math.max(0, container.clientHeight - padTop - padBottom);
-
-    const s = Math.min(vw/STAGE_W, vh/STAGE_H);
-
-    container.scrollTo({left:0, top:0});
-    container.style.overflow='hidden';
-    stage.style.margin='0'; // 避免 margin:auto 造成垂直偏移
-    stage.style.transform=`scale(${s})`;
-    stage.style.transformOrigin='top left';
-  }
-  isFullView=!isFullView;
-  updateViewBtn();
-});
-updateViewBtn();
+// iPad version: toggle handler replaced later by applyCurrentView() logic
 
 /** ======= 坐标工具 ======= **/
 function canvasPointFromEvent(e, targetCanvas=uiCanvas){
@@ -1973,12 +1955,211 @@ function setCopyMode(on){
 modeBtn.addEventListener('click', ()=> setModeSelect(!modeSelect));
 copyModeBtn.addEventListener('click', ()=> setCopyMode(!copyMode));
 
+
+/** ======= iPad / touch local zoom & gestures ======= **/
+const IS_TOUCH_DEVICE = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+const LOCAL_SCALE_MIN = 1;
+const LOCAL_SCALE_MAX = 4;
+const LOCAL_SCALE_STEP = 0.2;
+let localViewScale = IS_TOUCH_DEVICE ? 1.8 : 1;
+
+const zoomOutBtn = document.getElementById('zoomOutBtn');
+const zoomInBtn  = document.getElementById('zoomInBtn');
+
+function clampLocalScale(v){
+  return Math.max(LOCAL_SCALE_MIN, Math.min(LOCAL_SCALE_MAX, v));
+}
+
+function applyDisplayScale(scale){
+  const s = scale;
+  tickCanvas.style.width = (STAGE_W * s) + 'px';
+  tickCanvas.style.height = (STAGE_H * s) + 'px';
+  for(const c of [imgCanvas, gridCanvas, uiCanvas]){
+    c.style.width = (WIDTH * s) + 'px';
+    c.style.height = (HEIGHT * s) + 'px';
+    c.style.left = (MARGIN_L * s) + 'px';
+    c.style.top = '0px';
+  }
+  stage.style.width = (STAGE_W * s) + 'px';
+  stage.style.height = (STAGE_H * s) + 'px';
+}
+
+function setLocalScale(nextScale, centerClientX = null, centerClientY = null){
+  const prevScale = localViewScale;
+  const next = clampLocalScale(nextScale);
+  if(Math.abs(next - prevScale) < 0.0001){ return; }
+
+  const rect = container.getBoundingClientRect();
+  const cx = centerClientX == null ? (rect.left + rect.width / 2) : centerClientX;
+  const cy = centerClientY == null ? (rect.top + rect.height / 2) : centerClientY;
+  const localX = cx - rect.left;
+  const localY = cy - rect.top;
+
+  const worldX = (container.scrollLeft + localX) / prevScale;
+  const worldY = (container.scrollTop + localY) / prevScale;
+
+  localViewScale = next;
+  if(!isFullView){
+    applyDisplayScale(localViewScale);
+    container.scrollLeft = Math.max(0, worldX * localViewScale - localX);
+    container.scrollTop = Math.max(0, worldY * localViewScale - localY);
+  }
+}
+
+function zoomLocalBy(delta, centerX = null, centerY = null){
+  if(isFullView) return;
+  setLocalScale(localViewScale + delta, centerX, centerY);
+}
+
+if(zoomOutBtn){ zoomOutBtn.addEventListener('click', ()=> zoomLocalBy(-LOCAL_SCALE_STEP)); }
+if(zoomInBtn){ zoomInBtn.addEventListener('click', ()=> zoomLocalBy(LOCAL_SCALE_STEP)); }
+
+function applyCurrentView(){
+  if (isFullView){
+    const cs = getComputedStyle(container);
+    const padTop = parseFloat(cs.paddingTop) || 0;
+    const padBottom = parseFloat(cs.paddingBottom) || 0;
+    const vw = container.clientWidth;
+    const vh = Math.max(0, container.clientHeight - padTop - padBottom);
+    const s = Math.min(vw / STAGE_W, vh / STAGE_H);
+    container.scrollTo({left:0, top:0});
+    container.style.overflow='hidden';
+    applyDisplayScale(s);
+    stage.style.margin='0';
+  } else {
+    container.style.overflow='auto';
+    applyDisplayScale(localViewScale);
+    stage.style.margin='auto';
+  }
+}
+
+// override old toggle handler behavior
+if(toggleViewBtn){
+  toggleViewBtn.replaceWith(toggleViewBtn.cloneNode(true));
+}
+const toggleViewBtn2 = document.getElementById('toggleViewButton');
+window.toggleViewBtn = toggleViewBtn2;
+updateViewBtn = function(){
+  toggleViewBtn2.textContent = isFullView ? '全局' : '局部';
+};
+toggleViewBtn2.addEventListener('click', ()=>{
+  isFullView = !isFullView;
+  applyCurrentView();
+  updateViewBtn();
+});
+updateViewBtn();
+
+function performPaintAtCell(col, row, isStart=false){
+  if(modeSelect || copyMode || pastePreview.active || moveMode) return;
+  if(col<0||col>=COLS||row<0||row>=ROWS) return;
+  const k = keyOf(col,row);
+  const brush = getBrushMask();
+  if(brush === 0) return;
+  if(isStart){
+    pushHistory();
+    const currentVal = marked.get(k) || 0;
+    paintAction = ((currentVal & brush) !== 0) ? 'erase' : 'add';
+    painting = true;
+    lastCR = {col,row};
+  }
+  const currentVal = marked.get(k) || 0;
+  let nextVal;
+  if(paintAction === 'erase') nextVal = currentVal & (~brush);
+  else nextVal = currentVal | brush;
+  if(nextVal !== currentVal){
+    setCellByKey(k, nextVal === 0 ? 0 : nextVal);
+    redrawAllX();
+  }
+  lastCR = {col,row};
+}
+
+function paintLineBetween(c0, r0, c1, r1){
+  const dx = Math.abs(c1 - c0), dy = Math.abs(r1 - r0);
+  const steps = Math.max(dx, dy);
+  if(steps === 0){ performPaintAtCell(c1, r1, false); return; }
+  for(let i=1; i<=steps; i++){
+    const c = Math.round(c0 + (c1 - c0) * (i / steps));
+    const r = Math.round(r0 + (r1 - r0) * (i / steps));
+    performPaintAtCell(c, r, false);
+  }
+}
+
+gridCanvas.addEventListener('touchstart', (e)=>{
+  if(e.touches.length !== 1) return;
+  if(modeSelect || copyMode || pastePreview.active || moveMode || isFullView) return;
+  e.preventDefault();
+  const pt = canvasPointFromEvent(e, gridCanvas);
+  const {col,row} = colRowFromPoint(pt);
+  performPaintAtCell(col, row, true);
+}, {passive:false});
+
+gridCanvas.addEventListener('touchmove', (e)=>{
+  if(e.touches.length !== 1 || !painting) return;
+  if(modeSelect || copyMode || pastePreview.active || moveMode || isFullView) return;
+  e.preventDefault();
+  const pt = canvasPointFromEvent(e, gridCanvas);
+  const {col,row} = colRowFromPoint(pt);
+  if(col<0||col>=COLS||row<0||row>=ROWS) return;
+  if(col===lastCR.col && row===lastCR.row) return;
+  paintLineBetween(lastCR.col, lastCR.row, col, row);
+}, {passive:false});
+
+window.addEventListener('touchend', ()=>{ painting = false; }, {passive:true});
+window.addEventListener('touchcancel', ()=>{ painting = false; }, {passive:true});
+
+let pinchState = null;
+function midpoint(t1, t2){ return { x:(t1.clientX + t2.clientX)/2, y:(t1.clientY + t2.clientY)/2 }; }
+function distance(t1, t2){ return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY); }
+
+function startPinchGesture(e){
+  if(isFullView) return;
+  if(e.touches.length !== 2) return;
+  const [t1, t2] = e.touches;
+  pinchState = {
+    distance: distance(t1, t2),
+    midpoint: midpoint(t1, t2),
+    scale: localViewScale,
+    scrollLeft: container.scrollLeft,
+    scrollTop: container.scrollTop
+  };
+}
+
+function movePinchGesture(e){
+  if(!pinchState || e.touches.length !== 2 || isFullView) return;
+  e.preventDefault();
+  const [t1, t2] = e.touches;
+  const mid = midpoint(t1, t2);
+  const dist = distance(t1, t2);
+  const nextScale = clampLocalScale(pinchState.scale * (dist / Math.max(1, pinchState.distance)));
+  setLocalScale(nextScale, mid.x, mid.y);
+  const dx = mid.x - pinchState.midpoint.x;
+  const dy = mid.y - pinchState.midpoint.y;
+  container.scrollLeft = Math.max(0, container.scrollLeft - dx);
+  container.scrollTop = Math.max(0, container.scrollTop - dy);
+  pinchState.midpoint = mid;
+  pinchState.distance = dist;
+  pinchState.scale = localViewScale;
+}
+
+container.addEventListener('touchstart', (e)=>{
+  if(e.touches.length === 2){
+    painting = false;
+    startPinchGesture(e);
+  }
+}, {passive:false});
+container.addEventListener('touchmove', movePinchGesture, {passive:false});
+container.addEventListener('touchend', (e)=>{ if(e.touches.length < 2) pinchState = null; }, {passive:true});
+container.addEventListener('touchcancel', ()=>{ pinchState = null; }, {passive:true});
+
+window.addEventListener('resize', ()=>{ if(!isFullView) applyDisplayScale(localViewScale); else applyCurrentView(); });
+
 function init(){
   /** ✅ 新增：先画坐标标注 */
   drawTicks();
 
   drawGrid();
   updateToggleImgButton();
+  applyCurrentView();
 
   // ✅ 强制刷新三种模式按钮的“关”态样式（避免初始 class 残留导致显示不一致）
   setMoveMode(false);
