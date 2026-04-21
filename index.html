@@ -1,0 +1,1999 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>HUAYAOcocreation 130x150</title>
+<style>
+  :root { --panel-bg: rgba(255,255,255,.95); }
+
+  html,body{height:100%;margin:0}
+
+  body{
+    background:#1a1a1a;
+    display:flex;
+    align-items:stretch;
+    justify-content:center;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
+    padding-top:0;
+    box-sizing:border-box;
+    overflow: hidden;
+  }
+
+  #game-container{
+    position:relative;
+    width:100%;
+    height:100%;
+    overflow:auto;
+    box-sizing:border-box;
+    padding-top:60px;
+  }
+
+  #stage{
+    position:relative; width:fit-content; height:fit-content; margin:auto;
+    box-shadow:0 0 20px rgba(0,0,0,.5);
+  }
+
+  /* 初始层级：刻度(0) < 图片(1) < 网格(2) < UI(3) */
+  #tickCanvas,#imgCanvas,#gridCanvas,#uiCanvas{ position:absolute; left:0; top:0; display:block; }
+  #tickCanvas{ z-index:0; pointer-events:none; }
+  #imgCanvas{ z-index:1; }
+  #gridCanvas{ z-index:2; }
+  #uiCanvas{ z-index:3; pointer-events:none; }
+
+  #toolbar{
+    position:fixed; left:10px; top:10px; z-index:9999;
+    background:var(--panel-bg); padding:10px 12px; border-radius:10px;
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center; backdrop-filter: blur(4px);
+    max-width: calc(100vw - 20px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    box-sizing:border-box;
+  }
+  #toolbar label{ font-size:12px; color:#111; }
+  #toolbar input[type="range"]{ width:120px; }
+  #fileInput{ max-width:100px; }
+
+  button{
+    background:#fff;
+    color:#111;
+    border:1px solid #111;
+    padding:8px 10px;
+    border-radius:8px;
+    cursor:pointer;
+  }
+  button:hover{ background:rgba(0,0,0,0.03); }
+
+  /* 统一的“模式按钮”不再用填充色区分，只用边框/文字色 */
+  .mode{ background:#fff; color:#111; border:1px solid #111; }
+  .mode.active{ background:#fff; color:#111; border:1px solid #111; }
+
+  /* 开/关态（用于：底图移动、框选模式、复制/移动） */
+  .toggleOff{ background:#fff; color:rgba(0,0,0,0.45); border:1px solid rgba(0,0,0,0.28); }
+  .toggleOnBlue{ background:#fff; color:#111; border:1px solid rgba(59,130,246,0.95); }
+
+  /* 显示/隐藏态（用于：底图显示按钮） */
+  .toggleOnBlack{ background:#fff; color:#111; border:1px solid #111; }
+  .toggleHidden{ background:#fff; color:rgba(0,0,0,0.45); border:1px solid rgba(0,0,0,0.28); }
+
+  /* / 与 \ 的禁用开关：勾选=禁用，显示红色斜杠 */
+input.slashToggle{
+  -webkit-appearance:none; appearance:none;
+  width:14px; height:14px;
+  border:1px solid #111;
+  border-radius:3px;
+  vertical-align:middle;
+  margin-right:6px;
+  position:relative;
+  background:#fff;
+}
+input.slashToggle:checked::after{
+  content:'';
+  position:absolute;
+  left:2px; right:2px; top:50%;
+  height:2px;
+  background:rgba(220,38,38,0.95);
+  transform:translateY(-50%) rotate(-20deg);
+}
+
+.lockOn{ background:#fff; color:#111; border:1px solid rgba(220,38,38,0.55); }
+
+  
+
+  /* ===== 危险操作：红色提示（不刺眼） ===== */
+  button.danger{
+    background:#fff;
+    color:#111; /* 红边黑字 */
+    border:1px solid rgba(220,38,38,0.55);
+  }
+  button.danger:hover{ opacity:1; filter: brightness(1.02); }
+
+.sep{ width:1px; height:28px; background:rgba(0,0,0,.25); margin:0 4px; }
+
+  select, input[type="text"]{
+    height:34px;
+    border-radius:8px;
+    border:1px solid rgba(0,0,0,.25);
+    padding:0 10px;
+    background:#fff;
+    color:#111;
+    font-size:12px;
+    outline:none;
+  }
+  select{ padding-right:26px; cursor:pointer; }
+
+  #fitBtn,#centerBtn,#resetBtn{ display:none; }
+  #imgScaleWrap{ display:none; }
+
+  /* 下拉菜单 */
+  .dropdown{ position:relative; }
+  .dropdown-panel{
+    position:absolute;
+    right:0;
+    top:calc(100% + 8px);
+    background:var(--panel-bg);
+    border-radius:12px;
+    padding:10px;
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+    display:none;
+    min-width:360px;
+    max-width:620px;
+    max-height: calc(100vh - 150px);
+    overflow-y: auto;
+    z-index: 10000;
+  }
+  .dropdown-panel.open{ display:block; }
+
+  .dropdown-panel .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .dropdown-panel .row + .row{ margin-top:10px; }
+  .dropdown-panel .title{ font-size:12px; color:#111; opacity:.75; margin:6px 0 2px; width:100%; }
+  .dropdown-panel button{ white-space:nowrap; }
+  .hsep{ height:1px; background:rgba(0,0,0,.18); margin:10px 0; width:100%; }
+
+  .row.version-row{ flex-wrap:nowrap; }
+  .row.version-row #versionName{ min-width:160px; flex:1; }
+  .row.version-row #versionSelect{ min-width:140px; flex:0 0 auto; }
+
+  /* 素材库 */
+  .stamp-toolbar{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .stamp-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:10px; margin-top:10px; }
+  .stamp-card{ border:1px solid rgba(0,0,0,.15); border-radius:12px; background:rgba(255,255,255,.85); padding:8px; display:flex; flex-direction:column; align-items: center; gap:6px; }
+  .stamp-card:hover{ outline:2px solid rgba(0,0,0,.12); }
+  .stamp-thumb{ width:80px; height:80px; border-radius:10px; background:#111; border:1px solid rgba(0,0,0,.15); display:block; }
+  .stamp-name{ font-size:12px; color:#111; line-height:1.2; word-break:break-word; min-height:28px; text-align:center; width: 100%; }
+  .stamp-actions{ display:flex; width:100%; gap:4px; justify-content:center; }
+  .stamp-actions button{ flex:1; padding:6px 0; border-radius:8px; font-size:12px; text-align:center; min-width:0; }
+  .btn-light{ background:#fff; color:#111; border:1px solid rgba(0,0,0,.25); }
+
+  /* 提示条 */
+  #toast{
+    position:fixed; top:80px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.8); color:#fff; padding:8px 16px; border-radius:20px;
+    font-size:14px; pointer-events:none; opacity:0; transition:opacity 0.3s; z-index:20000;
+  }
+  #toast.show{ opacity:1; }
+
+  #toggleViewButton{ background:#111; color:#fff; border:1px solid #111; }
+</style>
+</head>
+<body>
+  <div id="toast"></div>
+  <div id="toolbar">
+    <input type="file" id="fileInput" accept="image/*" />
+
+    <button id="imgMoveMode" class="toggleOff"  title="开启后可拖拽/滚轮缩放背景图">底图移动：关</button>
+    <button id="toggleImgVisBtn" class="toggleOnBlack"  title="显示/隐藏背景图">底图：显示</button>
+
+    <div class="sep"></div>
+
+    <button id="modeSelect" class="toggleOff"  title="【框选模式】用于解析/导出">框选模式：关</button>
+    <button id="parseBtn" title="解析解析选框范围">解析所选区域</button>
+
+    <div class="sep"></div>
+
+    <button id="copyModeBtn" class="mode blueMode"
+      title="【复制模式】拖出蓝框 -> Cmd+C 复制 -> Cmd+V 粘贴">
+      复制：关
+    </button>
+    <button id="transformBtn" title="Shift+V 循环切换">变换：原样</button>
+
+    <div class="sep"></div>
+
+    <label>阈值 <span id="thrVal">200</span>
+      <input id="thr" type="range" min="0" max="255" value="200">
+    </label>
+    <label>像素占比 <span id="ratioVal">0.12</span>
+      <input id="ratio" type="range" min="5" max="95" value="12">
+    </label>
+    <label><input id="brightLine" type="checkbox" checked /> 白线</label>
+    <label><input id="diagMode" type="checkbox" /> 对角判定</label>
+    <label title="标红显示 8 邻域全空的独立 X（仅提醒，不做修改）"><input id="chkIsolated" type="checkbox" /> 孤立提示</label>
+
+    <div class="sep"></div>
+    <label title="/ 勾选=禁用"><input id="chkSlash" class="slashToggle" type="checkbox" /> /</label>
+    <label title="\\ 勾选=禁用"><input id="chkBackslash" class="slashToggle" type="checkbox" /> \</label>
+
+    <div class="sep"></div>
+
+    <!-- ✅ 清零热力计数（放在清空所有前面） -->
+    <button id="lockFilledBtn" class="lockOff" title="锁定当前已填充内容（快照锁）；锁定后空格仍可编辑">锁定画面</button>
+
+    <button id="resetHeatmapBtn" class="danger" title="清零热力计数（不会影响当前图案内容）">热力清零</button>
+    <button id="clearXBtn" class="danger" title="会弹确认，且可Cmd+Z撤销">清空所有</button>
+    <button id="toggleViewButton">局部</button>
+
+    <div class="sep"></div>
+
+    <!-- 保存/导出 下拉 -->
+    <div class="dropdown" id="saveExportDropdown">
+      <button id="saveExportBtn" class="mode" title="保存/导出">保存/导出 ▾</button>
+      <div id="saveExportPanel" class="dropdown-panel">
+         <div class="row"><div class="title">版本</div></div>
+         <div class="row">
+            <input id="versionName" type="text" placeholder="版本名（如：Ivy-年年有鱼）" title="输入版本名后点保存" />
+            <button id="saveVersionBtn" title="保存当前编辑状态">保存</button>
+        </div>
+          <div class="row">
+            <select id="versionSelect"></select>
+            <button id="loadVersionBtn">加载</button>
+            <button id="deleteVersionBtn">删除</button>
+          </div>
+        <div class="row">
+          <button id="exportVersionBtn" title="导出所有版本为JSON文件">导出版本JSON</button>
+          <label style="display:inline-flex; gap:6px; align-items:center;">
+            <span style="font-size:12px;color:#111;">导入版本</span>
+            <input id="importVersionInput" type="file" accept="application/json" style="width:180px;" />
+          </label>
+        </div>
+        <div class="hsep"></div>
+        <div class="row">
+          <div class="title">导出图像</div>
+          <select id="exportFormat" title="选择导出格式">
+            <option value="png">PNG</option>
+            <option value="jpeg">JPG</option>
+          </select>
+          <button id="exportAllBtn" title="导出全局画布（黑底+网格+白线）">导出全局</button>
+          <button id="exportSelBtn" title="导出选区（第一次点击进入框选；再次点击导出并退出框选）">导出选区</button>
+        </div>
+        <div class="row">
+          <button id="exportHeatmapBtn" title="导出透明底热力图PNG（红色强度=修改次数；解析不计入）">导出热力图</button>
+          <button id="exportHeatmapDataBtn" title="导出热力数据JSON（rows/cols + 1D touchCount）">导出热力数据</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 素材库 下拉 -->
+    <div class="dropdown" id="stampDropdown">
+      <button id="stampDropdownBtn" class="mode" title="素材库">素材库 ▾</button>
+      <div id="stampPanel" class="dropdown-panel" style="min-width:420px; max-width:720px;">
+        <div class="title">素材库</div>
+        <div class="stamp-toolbar">
+          <input id="stampName" type="text" placeholder="素材名（如：T/鱼01）" title="复制后可保存为素材；也可直接按 Cmd+Shift+S 保存" style="width:200px;" />
+          <button id="saveStampBtn" title="将当前剪贴板保存为素材（也可用 Cmd+Shift+S）">保存素材</button>
+          <button id="stampSortBtn" class="btn-light" title="切换排序：时间/名称">排序：时间</button>
+          <select id="stampGroupFilter" title="按分类过滤" style="min-width:140px;"></select>
+        </div>
+        <div class="stamp-grid" id="stampGrid"></div>
+      </div>
+    </div>
+
+    <label id="imgScaleWrap">缩放 <span id="imgScaleVal">100%</span>
+      <input id="imgScale" type="range" min="10" max="300" value="100">
+    </label>
+    <button id="fitBtn">Fit</button>
+    <button id="centerBtn">Center</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+
+  <div id="game-container">
+    <div id="stage">
+      <!-- ✅ 新增：刻度/坐标标注层（非交互） -->
+      <canvas id="tickCanvas"></canvas>
+
+      <canvas id="imgCanvas"></canvas>
+      <canvas id="gridCanvas"></canvas>
+      <canvas id="uiCanvas"></canvas>
+    </div>
+  </div>
+
+<script>
+/** ======= 画布与基本参数 ======= **/
+const COLS=150, ROWS=130, CELL_SIZE=10;
+const WIDTH=COLS*CELL_SIZE, HEIGHT=ROWS*CELL_SIZE;
+const LINE_COLOR='#444', X_COLOR='#fff';
+const BG_COLOR = '#111';
+
+/** ✅ 新增：坐标标注边距（默认值） **/
+const MARGIN_L = 48;  // 左侧刻度区宽度
+const MARGIN_B = 36;  // 底部刻度区高度
+const STAGE_W = WIDTH + MARGIN_L;
+const STAGE_H = HEIGHT + MARGIN_B;
+
+const tickCanvas=document.getElementById('tickCanvas');
+const imgCanvas=document.getElementById('imgCanvas');
+const gridCanvas=document.getElementById('gridCanvas');
+const uiCanvas=document.getElementById('uiCanvas');
+
+const tickCtx=tickCanvas.getContext('2d');
+const imgCtx=imgCanvas.getContext('2d',{willReadFrequently:true});
+const gridCtx=gridCanvas.getContext('2d');
+const uiCtx=uiCanvas.getContext('2d');
+const stage=document.getElementById('stage');
+const container=document.getElementById('game-container');
+
+/** ✅ 修改：stage 尺寸变大；三层可编辑画布整体右移；tickCanvas 覆盖整个 stage */
+tickCanvas.width = STAGE_W;
+tickCanvas.height = STAGE_H;
+tickCanvas.style.width = STAGE_W + 'px';
+tickCanvas.style.height = STAGE_H + 'px';
+
+[imgCanvas,gridCanvas,uiCanvas].forEach(c=>{
+  c.width=WIDTH; c.height=HEIGHT;
+  c.style.width=WIDTH+'px'; c.style.height=HEIGHT+'px';
+  c.style.left = MARGIN_L + 'px'; // ✅ 右移，让左侧空出刻度区
+  c.style.top  = '0px';
+});
+stage.style.width = STAGE_W+'px';
+stage.style.height = STAGE_H+'px';
+
+// Map<key, mask> (Mask: 1=/, 2=\, 3=X)
+const marked = new Map();
+let isFullView=false;
+
+/** ======= ✅ touchCount（每格“修改”次数；解析不计入） ======= **/
+const touchCount = new Uint32Array(COLS * ROWS); // 19500
+const everFilled = new Uint8Array(COLS * ROWS);  // 保留：用于记录格子曾被填充过（可选）
+
+/** ======= ✅ 锁定已填充区域（快照锁） ======= **/
+let lockFilledOn = false;
+let lockMask = new Uint8Array(COLS * ROWS);
+const lockFilledBtn = document.getElementById('lockFilledBtn');
+
+function rebuildLockMaskFromMarked(){
+  lockMask.fill(0);
+  marked.forEach((v,k)=>{
+    const {c,r} = parseKey(k);
+    if(c>=0 && c<COLS && r>=0 && r<ROWS){
+      lockMask[idxOf(c,r)] = 1;
+    }
+  });
+}
+function updateLockBtn(){
+  if(!lockFilledBtn) return;
+  if(lockFilledOn){
+    lockFilledBtn.textContent = '解除锁定';
+    lockFilledBtn.classList.remove('lockOff');
+    lockFilledBtn.classList.add('lockOn');
+  }else{
+    lockFilledBtn.textContent = '锁定画面';
+    lockFilledBtn.classList.remove('lockOn');
+    lockFilledBtn.classList.add('lockOff');
+  }
+}
+if(lockFilledBtn){
+  updateLockBtn();
+  lockFilledBtn.addEventListener('click', ()=>{
+    lockFilledOn = !lockFilledOn;
+    if(lockFilledOn){
+      rebuildLockMaskFromMarked();
+      showToast('已锁定：已填充区域不可改动');
+    }else{
+      lockMask.fill(0);
+      showToast('已解锁：可编辑全部');
+    }
+    updateLockBtn();
+  });
+}
+
+function idxOf(c, r){ return r * COLS + c; }
+
+// 从 "c,r" 解析
+function parseKey(k){
+  const comma = k.indexOf(',');
+  return {
+    c: parseInt(k.slice(0, comma), 10),
+    r: parseInt(k.slice(comma + 1), 10),
+  };
+}
+
+/**
+ * ✅ 统一修改某个格子的值（并自动累计“修改次数”）
+ * 规则：
+ * - source === 'parse'：不计入 touchCount（解析不算修改）
+ * - source !== 'parse'：只要 oldVal !== newVal 就 touchCount +1
+ */
+function setCellByKey(k, newVal, source='edit', force=false){
+  const oldVal = marked.get(k) || 0;
+  if(oldVal === newVal) return false; // 没变化，不计数
+
+  const {c, r} = parseKey(k);
+  if(c >= 0 && c < COLS && r >= 0 && r < ROWS){
+    const idx = idxOf(c, r);
+
+    // ✅ 锁定拦截：锁定期间，禁止改动已锁定格子（除非 force）
+    if(lockFilledOn && !force && lockMask[idx] === 1){
+      return false;
+    }
+
+    if(source === 'parse'){
+      if(oldVal === 0 && newVal !== 0) everFilled[idx] = 1;
+    }else{
+      touchCount[idx] += 1;
+      if(newVal !== 0) everFilled[idx] = 1;
+    }
+  }
+
+  if(newVal === 0) marked.delete(k);
+  else marked.set(k, newVal);
+
+  return true;
+}
+function setCell(c, r, newVal){
+  return setCellByKey(keyOf(c, r), newVal);
+}
+
+/** ======= ✅ 孤立 X 检测（8 邻域全空则标红，仅提醒不修改） ======= **/
+const isolatedChk = document.getElementById('chkIsolated');
+let showIsolated = false;
+let isolatedKeys = new Set();
+
+function updateIsolatedBtn(){
+  if(!isolatedChk) return;
+  isolatedChk.checked = !!showIsolated;
+}
+if(isolatedChk){
+  updateIsolatedBtn();
+  isolatedChk.addEventListener('change', ()=>{
+    showIsolated = isolatedChk.checked;
+    redrawUiOverlay();
+  });
+}
+
+function recomputeIsolatedKeys(){
+  isolatedKeys = new Set();
+  if(marked.size === 0) return;
+
+  const dirs = [
+    [-1,  0],[ 1,  0],[ 0, -1],[ 0,  1],
+    [-1, -1],[ 1, -1],[-1,  1],[ 1,  1],
+  ];
+
+  marked.forEach((mask, k)=>{
+    const comma = k.indexOf(',');
+    const c = parseInt(k.slice(0, comma), 10);
+    const r = parseInt(k.slice(comma + 1), 10);
+
+    let hasNeighbor = false;
+    for(const [dc, dr] of dirs){
+      const nc = c + dc, nr = r + dr;
+      if(nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS) continue;
+      if(marked.has(keyOf(nc, nr))){ hasNeighbor = true; break; }
+    }
+    if(!hasNeighbor) isolatedKeys.add(k);
+  });
+}
+
+
+// 斜线开关
+const chkSlash = document.getElementById('chkSlash');
+const chkBackslash = document.getElementById('chkBackslash');
+let drawSlashMode = true;
+let drawBackslashMode = true;
+
+function updateBrushBtns(){
+  // ✅ 勾选表示“禁用”该笔刷：checked=true => drawMode=false
+  if(chkSlash) chkSlash.checked = !drawSlashMode;
+  if(chkBackslash) chkBackslash.checked = !drawBackslashMode;
+}
+if(chkSlash){
+  chkSlash.addEventListener('change', ()=>{
+    drawSlashMode = !chkSlash.checked;
+  });
+}
+if(chkBackslash){
+  chkBackslash.addEventListener('change', ()=>{
+    drawBackslashMode = !chkBackslash.checked;
+  });
+}
+updateBrushBtns();
+
+// 提示条
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=> t.classList.remove('show'), 2000);
+}
+
+/** ======= ✅ 绘制坐标标注 ======= **/
+function drawTicks(){
+  tickCtx.clearRect(0,0,STAGE_W,STAGE_H);
+
+  tickCtx.fillStyle = '#000';
+  tickCtx.fillRect(0,0,STAGE_W,STAGE_H);
+
+  tickCtx.fillStyle = BG_COLOR;
+  tickCtx.fillRect(MARGIN_L, 0, WIDTH, HEIGHT);
+
+  tickCtx.save();
+  tickCtx.fillStyle = 'rgba(255,255,255,0.65)';
+  tickCtx.font = '12px system-ui,-apple-system,Segoe UI,Roboto,Arial';
+
+  tickCtx.textAlign = 'right';
+  tickCtx.textBaseline = 'middle';
+  for(let r=0; r<=ROWS; r+=10){
+    const y = r * CELL_SIZE;
+    tickCtx.fillText(String(r), MARGIN_L - 6, y);
+  }
+
+  tickCtx.textAlign = 'center';
+  tickCtx.textBaseline = 'top';
+  for(let c=0; c<=COLS; c+=10){
+    const x = MARGIN_L + c * CELL_SIZE;
+    tickCtx.fillText(String(c), x, HEIGHT + 6);
+  }
+  tickCtx.restore();
+}
+
+/** ======= 布局监控 ======= **/
+function updateCanvasTopPadding(){
+  const tb = document.getElementById('toolbar');
+  const cnt = document.getElementById('game-container');
+  if(!tb || !cnt) return;
+  const rect = tb.getBoundingClientRect();
+  const pad = Math.ceil(rect.bottom + 10);
+  cnt.style.paddingTop = pad + 'px';
+  const panels = document.querySelectorAll('.dropdown-panel.open');
+  panels.forEach(p => { if(typeof ensureDropdownInViewport === 'function') ensureDropdownInViewport(p); });
+}
+
+function observeToolbarWrapChanges(){
+  const tb = document.getElementById('toolbar');
+  if(tb && 'ResizeObserver' in window){
+    const ro = new ResizeObserver(() => updateCanvasTopPadding());
+    ro.observe(tb);
+  }
+  window.addEventListener('resize', updateCanvasTopPadding);
+  setTimeout(updateCanvasTopPadding, 0);
+  setTimeout(updateCanvasTopPadding, 200);
+}
+
+/** ======= 撤销 ======= **/
+const historyStack = [];
+const MAX_HISTORY = 50;
+
+function pushHistory(){
+  historyStack.push(new Map(marked));
+  if(historyStack.length > MAX_HISTORY) historyStack.shift();
+}
+function undoLast(){
+  if(historyStack.length === 0) return;
+  const prev = historyStack.pop(); // Map
+
+  const keys = new Set([...marked.keys(), ...prev.keys()]);
+  for(const k of keys){
+    const curVal = marked.get(k) || 0;
+    const nextVal = prev.get(k) || 0;
+    if(curVal !== nextVal){
+      setCellByKey(k, nextVal, 'edit', true);
+    }
+  }
+  drawGrid();
+  redrawAllX();
+}
+
+/** ======= 网格与绘图 ======= **/
+function drawGrid(){
+  gridCtx.clearRect(0,0,WIDTH,HEIGHT);
+  gridCtx.beginPath(); gridCtx.strokeStyle=LINE_COLOR; gridCtx.lineWidth=1;
+  for(let x=0;x<=WIDTH;x+=CELL_SIZE){ gridCtx.moveTo(x+0.5,0); gridCtx.lineTo(x+0.5,HEIGHT); }
+  for(let y=0;y<=HEIGHT;y+=CELL_SIZE){ gridCtx.moveTo(0,y+0.5); gridCtx.lineTo(WIDTH,y+0.5); }
+  gridCtx.stroke();
+
+  recomputeIsolatedKeys();
+  redrawUiOverlay();
+}
+
+function redrawAllX(){
+  gridCtx.clearRect(0,0,WIDTH,HEIGHT);
+  drawGrid();
+  gridCtx.beginPath();
+  gridCtx.strokeStyle = X_COLOR;
+  gridCtx.lineWidth = 1;
+
+  marked.forEach((mask, k) => {
+    const comma = k.indexOf(',');
+    const c = parseInt(k.slice(0, comma), 10);
+    const r = parseInt(k.slice(comma + 1), 10);
+    const x = c * CELL_SIZE;
+    const y = r * CELL_SIZE;
+    if(mask & 1){ gridCtx.moveTo(x, y + CELL_SIZE); gridCtx.lineTo(x + CELL_SIZE, y); }
+    if(mask & 2){ gridCtx.moveTo(x, y); gridCtx.lineTo(x + CELL_SIZE, y + CELL_SIZE); }
+  });
+  gridCtx.stroke();
+}
+function keyOf(c,r){ return `${c},${r}`; }
+
+/** ======= 视角 ======= **/
+const toggleViewBtn = document.getElementById('toggleViewButton');
+function updateViewBtn(){
+  toggleViewBtn.textContent = isFullView ? '全局' : '局部';
+}
+toggleViewBtn.addEventListener('click', ()=>{
+  if (isFullView){
+    // 退出全局：恢复滚动/居中
+    container.style.overflow='auto';
+    stage.style.transform='scale(1)';
+    stage.style.transformOrigin='top left';
+    stage.style.margin='auto';
+  }else{
+    // 进入全局：使用容器真实可见高度（扣除 paddingTop），确保底部不被裁切
+    const cs = getComputedStyle(container);
+    const padTop = parseFloat(cs.paddingTop) || 0;
+    const padBottom = parseFloat(cs.paddingBottom) || 0;
+    const vw = container.clientWidth;
+    const vh = Math.max(0, container.clientHeight - padTop - padBottom);
+
+    const s = Math.min(vw/STAGE_W, vh/STAGE_H);
+
+    container.scrollTo({left:0, top:0});
+    container.style.overflow='hidden';
+    stage.style.margin='0'; // 避免 margin:auto 造成垂直偏移
+    stage.style.transform=`scale(${s})`;
+    stage.style.transformOrigin='top left';
+  }
+  isFullView=!isFullView;
+  updateViewBtn();
+});
+updateViewBtn();
+
+/** ======= 坐标工具 ======= **/
+function canvasPointFromEvent(e, targetCanvas=uiCanvas){
+  const rect=targetCanvas.getBoundingClientRect();
+  const scaleX=targetCanvas.width/rect.width, scaleY=targetCanvas.height/rect.height;
+  const clientX=(e.touches?.[0]?.clientX ?? e.clientX);
+  const clientY=(e.touches?.[0]?.clientY ?? e.clientY);
+  return { x:(clientX-rect.left)*scaleX, y:(clientY-rect.top)*scaleY };
+}
+function colRowFromPoint(pt){
+  return { col:Math.floor(pt.x/CELL_SIZE), row:Math.floor(pt.y/CELL_SIZE) };
+}
+
+/** ======= 图像：加载、缩放、拖拽 ======= **/
+let imageReady=false;
+let imageEl=null;
+const imgState = { scale:1, dx:0, dy:0, dw:0, dh:0 };
+
+const imgScaleRange = document.getElementById('imgScale');
+const imgScaleVal = document.getElementById('imgScaleVal');
+const moveBtn = document.getElementById('imgMoveMode');
+let moveMode=false;
+
+let imageVisible = true;
+const toggleImgVisBtn = document.getElementById('toggleImgVisBtn');
+
+function updateToggleImgButton(){
+  toggleImgVisBtn.textContent = imageVisible ? '底图：显示' : '底图：隐藏';
+  toggleImgVisBtn.classList.remove('toggleOnBlack','toggleHidden');
+  toggleImgVisBtn.classList.add(imageVisible ? 'toggleOnBlack' : 'toggleHidden');
+}
+toggleImgVisBtn.addEventListener('click', ()=>{
+  imageVisible = !imageVisible;
+  drawImageTransformed();
+  updateToggleImgButton();
+});
+
+function refreshUiPointerCapture(){
+  if(moveMode){
+    uiCanvas.style.pointerEvents = 'none';
+    return;
+  }
+  uiCanvas.style.pointerEvents = (modeSelect || copyMode || pastePreview.active) ? 'auto' : 'none';
+  uiCanvas.style.cursor = pastePreview.active ? 'crosshair' :
+                         (modeSelect || copyMode ? 'crosshair' : 'default');
+}
+
+function setMoveMode(on){
+  moveMode=on;
+  moveBtn.textContent=`底图移动：${on?'开':'关'}`;
+  moveBtn.classList.remove('toggleOff','toggleOnBlue');
+  moveBtn.classList.add(on ? 'toggleOnBlue' : 'toggleOff');
+  if (on){
+    setModeSelect(false); setCopyMode(false);
+    imgCanvas.style.zIndex = 1; gridCanvas.style.zIndex = 2; uiCanvas.style.zIndex = 3;
+    imgCanvas.style.pointerEvents = 'auto'; gridCanvas.style.pointerEvents = 'none'; uiCanvas.style.pointerEvents = 'none';
+    imgCanvas.style.cursor = 'grab';
+  }else{
+    imgCanvas.style.zIndex = 1; gridCanvas.style.zIndex = 2; uiCanvas.style.zIndex = 3;
+    imgCanvas.style.pointerEvents = 'none'; gridCanvas.style.pointerEvents = 'auto'; imgCanvas.style.cursor = 'default';
+    refreshUiPointerCapture();
+  }
+}
+moveBtn.addEventListener('click', ()=> setMoveMode(!moveMode));
+
+function drawImageTransformed(){
+  imgCtx.clearRect(0,0,WIDTH,HEIGHT);
+  if(!imageEl || !imageVisible) return;
+  const dw = Math.max(1, Math.round(imageEl.width  * imgState.scale));
+  const dh = Math.max(1, Math.round(imageEl.height * imgState.scale));
+  imgState.dw = dw; imgState.dh = dh;
+  imgCtx.save(); imgCtx.globalAlpha = 0.8;
+  imgCtx.drawImage(imageEl, imgState.dx, imgState.dy, dw, dh);
+  imgCtx.restore();
+  imgCtx.save(); imgCtx.strokeStyle='rgba(0,255,0,0.65)'; imgCtx.lineWidth=2;
+  imgCtx.strokeRect(imgState.dx+1, imgState.dy+1, Math.max(0,dw-2), Math.max(0,dh-2));
+  imgCtx.restore();
+}
+
+function getMaxScaleFillCanvas(){
+  if(!imageEl) return 1;
+  const W = WIDTH, H = HEIGHT;
+  const cx = imgState.dx + imgState.dw / 2;
+  const cy = imgState.dy + imgState.dh / 2;
+  const iw = imageEl.width;
+  const ih = imageEl.height;
+  const halfSpanX = Math.max(1, Math.min(cx, W - cx));
+  const halfSpanY = Math.max(1, Math.min(cy, H - cy));
+  const maxByX = (2 * halfSpanX) / iw;
+  const maxByY = (2 * halfSpanY) / ih;
+  return Math.max(0.01, Math.min(maxByX, maxByY));
+}
+function clampScaleToRuleA(s){ return Math.min(s, getMaxScaleFillCanvas()); }
+
+function fitImage(){
+  if(!imageEl) return;
+  const s = Math.min(WIDTH/imageEl.width, HEIGHT/imageEl.height);
+  imgState.scale = s;
+  imgState.dw = Math.round(imageEl.width*s);
+  imgState.dh = Math.round(imageEl.height*s);
+  imgState.dx = Math.round((WIDTH - imgState.dw)/2);
+  imgState.dy = Math.round((HEIGHT - imgState.dh)/2);
+  imgScaleRange.value = Math.round(imgState.scale*100);
+  imgScaleVal.textContent = `${imgScaleRange.value}%`;
+  drawImageTransformed();
+}
+function centerImage(){
+  if(!imageEl) return;
+  imgState.dx = Math.round((WIDTH - imgState.dw)/2);
+  imgState.dy = Math.round((HEIGHT - imgState.dh)/2);
+  drawImageTransformed();
+}
+function resetImage(){
+  if(!imageEl) return;
+  imgState.scale = 1;
+  imgState.dw = imageEl.width;
+  imgState.dh = imageEl.height;
+  imgState.dx = Math.round((WIDTH - imgState.dw)/2);
+  imgState.dy = Math.round((HEIGHT - imgState.dh)/2);
+  imgScaleRange.value = 100;
+  imgScaleVal.textContent = `100%`;
+  drawImageTransformed();
+}
+
+document.getElementById('fitBtn').addEventListener('click', fitImage);
+document.getElementById('centerBtn').addEventListener('click', centerImage);
+document.getElementById('resetBtn').addEventListener('click', resetImage);
+
+imgScaleRange.addEventListener('input', ()=>{
+  if(!imageEl) return;
+  let newScale = parseInt(imgScaleRange.value,10)/100;
+  newScale = clampScaleToRuleA(newScale);
+  const cx = imgState.dx + imgState.dw/2;
+  const cy = imgState.dy + imgState.dh/2;
+  imgState.scale = newScale;
+  imgState.dw = Math.round(imageEl.width*newScale);
+  imgState.dh = Math.round(imageEl.height*newScale);
+  imgState.dx = Math.round(cx - imgState.dw/2);
+  imgState.dy = Math.round(cy - imgState.dh/2);
+  imgScaleRange.value = Math.round(imgState.scale*100);
+  imgScaleVal.textContent = `${imgScaleRange.value}%`;
+  drawImageTransformed();
+});
+
+let dragging=false, dragStart={x:0,y:0}, startPos={dx:0,dy:0};
+imgCanvas.addEventListener('mousedown', (e)=>{
+  if(!moveMode || !imageEl) return;
+  dragging=true;
+  const pt = canvasPointFromEvent(e, imgCanvas);
+  dragStart=pt;
+  startPos={dx:imgState.dx, dy:imgState.dy};
+  imgCanvas.style.cursor='grabbing';
+});
+window.addEventListener('mousemove', (e)=>{
+  if(!dragging) return;
+  const pt = canvasPointFromEvent(e, imgCanvas);
+  imgState.dx = Math.round(startPos.dx + (pt.x - dragStart.x));
+  imgState.dy = Math.round(startPos.dy + (pt.y - dragStart.y));
+  drawImageTransformed();
+});
+window.addEventListener('mouseup', ()=>{
+  if(dragging){ dragging=false; imgCanvas.style.cursor='grab'; }
+});
+
+imgCanvas.addEventListener('wheel', (e)=>{
+  if(!moveMode || !imageEl) return;
+  e.preventDefault();
+  const pt = canvasPointFromEvent(e, imgCanvas);
+  const oldScale = imgState.scale;
+  const delta = -Math.sign(e.deltaY) * 0.02;
+  let newScale = Math.max(0.1, oldScale + delta);
+  newScale = clampScaleToRuleA(newScale);
+  if (newScale === oldScale) return;
+  const relX = (pt.x - imgState.dx) / imgState.dw;
+  const relY = (pt.y - imgState.dy) / imgState.dh;
+  imgState.scale = newScale;
+  const newDw = Math.round(imageEl.width * newScale);
+  const newDh = Math.round(imageEl.height * newScale);
+  imgState.dx = Math.round(pt.x - relX * newDw);
+  imgState.dy = Math.round(pt.y - relY * newDh);
+  imgState.dw = newDw; imgState.dh = newDh;
+  imgScaleRange.value = Math.round(newScale*100);
+  imgScaleVal.textContent = `${imgScaleRange.value}%`;
+  drawImageTransformed();
+}, {passive:false});
+
+document.getElementById('fileInput').addEventListener('change',(e)=>{
+  const file=e.target.files?.[0]; if(!file) return;
+  const url=URL.createObjectURL(file);
+  const img=new Image();
+  img.onload=()=>{
+    imageEl = img;
+    imageVisible = true;
+    updateToggleImgButton();
+    fitImage();
+    imageReady=true;
+  };
+  img.onerror=()=>{ alert('图片加载失败'); imageReady=false; };
+  img.src=url;
+});
+
+/** ======= 解析/复制模式：互斥 ======= **/
+const modeBtn=document.getElementById('modeSelect');
+let modeSelect=false;
+
+const copyModeBtn = document.getElementById('copyModeBtn');
+let copyMode=false;
+
+/** ======= 选择框数据 ======= **/
+let selParse={ active:false, hasBox:false, x0:0,y0:0,x1:0,y1:0 };
+let selCopy ={ active:false, hasBox:false, x0:0,y0:0,x1:0,y1:0 };
+
+function clampSelObj(sel){
+  sel.x0=Math.max(0,Math.min(WIDTH, sel.x0));
+  sel.x1=Math.max(0,Math.min(WIDTH, sel.x1));
+  sel.y0=Math.max(0,Math.min(HEIGHT,sel.y0));
+  sel.y1=Math.max(0,Math.min(HEIGHT,sel.y1));
+}
+function rectFromSel(sel){
+  const x=Math.min(sel.x0,sel.x1), y=Math.min(sel.y0,sel.y1);
+  const w=Math.abs(sel.x1-sel.x0), h=Math.abs(sel.y1-sel.y0);
+  return {x,y,w,h};
+}
+
+function deleteMarkedInSelParse(){
+  if(!selParse.hasBox) return false;
+  const {x,y,w,h} = rectFromSel(selParse);
+  if(w <= 0 || h <= 0) return false;
+  const c0 = Math.max(0, Math.floor(x / CELL_SIZE));
+  const r0 = Math.max(0, Math.floor(y / CELL_SIZE));
+  const c1 = Math.min(COLS-1, Math.floor((x + w - 1) / CELL_SIZE));
+  const r1 = Math.min(ROWS-1, Math.floor((y + h - 1) / CELL_SIZE));
+  if(c0 > c1 || r0 > r1) return false;
+  pushHistory();
+  let changed = false;
+  for(let r=r0; r<=r1; r++){
+    for(let c=c0; c<=c1; c++){
+      const k = keyOf(c,r);
+      if(marked.has(k)){
+        setCellByKey(k, 0);
+        changed = true;
+      }
+    }
+  }
+  if(changed){ drawGrid(); redrawAllX(); }
+  return true;
+}
+
+function cancelParseSelectionOnly(){
+  if(!selParse.hasBox && !selParse.active) return false;
+  selParse.hasBox = false; selParse.active = false;
+  redrawUiOverlay();
+  return true;
+}
+
+/** ======= UI 叠加 ======= **/
+function redrawUiOverlay(){
+  uiCtx.clearRect(0,0,WIDTH,HEIGHT);
+  if(selParse.hasBox){
+    const {x,y,w,h} = rectFromSel(selParse);
+    uiCtx.save();
+    uiCtx.fillStyle='rgba(255,255,255,.10)'; uiCtx.fillRect(x,y,w,h);
+    uiCtx.setLineDash([8,4]); uiCtx.lineWidth=2; uiCtx.strokeStyle='#fff';
+    uiCtx.strokeRect(x+1,y+1,Math.max(0,w-2),Math.max(0,h-2));
+    uiCtx.restore();
+  }
+  if(selCopy.hasBox){
+    const {x,y,w,h} = rectFromSel(selCopy);
+    uiCtx.save();
+    uiCtx.fillStyle='rgba(0,200,255,.10)'; uiCtx.fillRect(x,y,w,h);
+    uiCtx.setLineDash([6,4]); uiCtx.lineWidth=2; uiCtx.strokeStyle='rgba(0,200,255,.95)';
+    uiCtx.strokeRect(x+1,y+1,Math.max(0,w-2),Math.max(0,h-2));
+    uiCtx.restore();
+  }
+  if(pastePreview.active && pastePreview.cells && pastePreview.cells.length){
+    uiCtx.save();
+    uiCtx.globalAlpha = 0.45;
+    uiCtx.strokeStyle = '#fff';
+    uiCtx.lineWidth = 1;
+    for(const {c,r,val} of pastePreview.cells){
+      const x=c*CELL_SIZE, y=r*CELL_SIZE;
+      const v = val || 3;
+      uiCtx.beginPath();
+      if(v & 1) { uiCtx.moveTo(x,y+CELL_SIZE); uiCtx.lineTo(x+CELL_SIZE,y); }
+      if(v & 2) { uiCtx.moveTo(x,y); uiCtx.lineTo(x+CELL_SIZE,y+CELL_SIZE); }
+      uiCtx.stroke();
+    }
+    uiCtx.restore();
+  }
+  if(showIsolated && isolatedKeys && isolatedKeys.size){
+    uiCtx.save();
+    uiCtx.strokeStyle = 'rgba(255,0,0,0.95)';
+    uiCtx.fillStyle   = 'rgba(255,0,0,0.18)';
+    uiCtx.lineWidth = 2;
+
+    isolatedKeys.forEach((k)=>{
+      const comma = k.indexOf(',');
+      const c = parseInt(k.slice(0, comma), 10);
+      const r = parseInt(k.slice(comma + 1), 10);
+      const x = c * CELL_SIZE;
+      const y = r * CELL_SIZE;
+
+      uiCtx.fillRect(x+1, y+1, CELL_SIZE-2, CELL_SIZE-2);
+      uiCtx.strokeRect(x+1, y+1, CELL_SIZE-2, CELL_SIZE-2);
+    });
+
+    uiCtx.restore();
+  }
+}
+
+/** ======= 手绘互动 ======= **/
+let painting=false, lastCR={col:-1,row:-1};
+let paintAction = 'add';
+
+function getBrushMask(){
+  return (drawSlashMode ? 1 : 0) | (drawBackslashMode ? 2 : 0);
+}
+
+gridCanvas.addEventListener('mousedown',(e)=>{
+  if(modeSelect || copyMode || pastePreview.active || moveMode) return;
+  const pt=canvasPointFromEvent(e, gridCanvas);
+  const {col,row}=colRowFromPoint(pt);
+  if(col<0||col>=COLS||row<0||row>=ROWS) return;
+  pushHistory();
+  painting=true;
+  lastCR={col,row};
+  const k=keyOf(col,row);
+  const currentVal = marked.get(k) || 0;
+  const brush = getBrushMask();
+  if(brush === 0) return;
+  paintAction = ((currentVal & brush) !== 0) ? 'erase' : 'add';
+
+  let nextVal;
+  if(paintAction === 'erase') nextVal = currentVal & (~brush);
+  else nextVal = currentVal | brush;
+
+  setCellByKey(k, nextVal === 0 ? 0 : nextVal);
+  redrawAllX();
+});
+
+gridCanvas.addEventListener('mousemove',(e)=>{
+  if(modeSelect || copyMode || pastePreview.active || moveMode || !painting) return;
+  const pt=canvasPointFromEvent(e, gridCanvas);
+  const {col,row}=colRowFromPoint(pt);
+  if(col===lastCR.col && row===lastCR.row) return;
+  if(col<0||col>=COLS||row<0||row>=ROWS) return;
+  lastCR={col,row};
+  const k=keyOf(col,row);
+  const currentVal = marked.get(k) || 0;
+  const brush = getBrushMask();
+  if(brush === 0) return;
+
+  let nextVal;
+  if(paintAction === 'erase') nextVal = currentVal & (~brush);
+  else nextVal = currentVal | brush;
+
+  if(nextVal !== currentVal){
+    setCellByKey(k, nextVal === 0 ? 0 : nextVal);
+    redrawAllX();
+  }
+});
+
+window.addEventListener('mouseup',()=> painting=false);
+
+gridCanvas.addEventListener('dblclick',(e)=>{
+  if(modeSelect || copyMode || pastePreview.active || moveMode) return;
+  const {col,row}=colRowFromPoint(canvasPointFromEvent(e, gridCanvas));
+  if(col<0||col>=COLS||row<0||row>=ROWS) return;
+  const k=keyOf(col,row);
+  if(marked.has(k)){
+    pushHistory();
+    setCellByKey(k, 0);
+    redrawAllX();
+  }
+});
+
+/** ======= 解析 ======= **/
+const thrRange=document.getElementById('thr');
+const ratioRange=document.getElementById('ratio');
+const thrVal=document.getElementById('thrVal');
+const ratioVal=document.getElementById('ratioVal');
+const brightLine=document.getElementById('brightLine');
+const diagMode=document.getElementById('diagMode');
+
+thrVal.textContent = thrRange.value;
+ratioVal.textContent = (ratioRange.value/100).toFixed(2);
+thrRange.addEventListener('input',()=> thrVal.textContent=thrRange.value);
+ratioRange.addEventListener('input',()=> ratioVal.textContent=(ratioRange.value/100).toFixed(2));
+
+let overwriteMode = false; // ✅ 默认叠加（锁定模式下更安全），并移除覆盖/叠加切换按钮
+document.getElementById('parseBtn').addEventListener('click', ()=>{
+  if(!imageReady){ alert('请先上传图片（底层应能看到绿色边框）'); return; }
+  if(!selParse.hasBox){ alert('请先开启“框选模式”并拖拽一个解析选框'); return; }
+
+  const {x:sx, y:sy, w:sw, h:sh} = rectFromSel(selParse);
+  const sxI=Math.floor(sx), syI=Math.floor(sy);
+  const swI=Math.max(1, Math.floor(sw));
+  const shI=Math.max(1, Math.floor(sh));
+  const dx=imgState.dx, dy=imgState.dy, dw=imgState.dw, dh=imgState.dh;
+  const ix=Math.max(sxI, dx);
+  const iy=Math.max(syI, dy);
+  const ix2=Math.min(sxI+swI, dx+dw);
+  const iy2=Math.min(syI+shI, dy+dh);
+  const iw=Math.max(0, ix2-ix);
+  const ih=Math.max(0, iy2-iy);
+  if(iw===0 || ih===0){ alert('选择区域与图片没有交集'); return; }
+  pushHistory();
+  let imgData;
+  try{ imgData=imgCtx.getImageData(ix,iy,iw,ih); }catch(err){ alert('读取像素失败'); return; }
+
+  const data=imgData.data;
+  const thr=parseInt(thrRange.value,10);
+  const ratioThr=parseInt(ratioRange.value,10)/100;
+  const useBright=brightLine.checked;
+  const useDiag=diagMode.checked;
+  const diagWidth=2;
+
+  const counts=new Map();
+  for(let yy=0; yy<ih; yy++){
+    for(let xx=0; xx<iw; xx++){
+      const i=(yy*iw+xx)*4;
+      const r=data[i], g=data[i+1], b=data[i+2];
+      const lum=0.299*r + 0.587*g + 0.114*b;
+      const hit = useBright ? (lum > thr) : (lum < thr);
+      const gx=ix+xx, gy=iy+yy;
+      const col=Math.floor(gx/CELL_SIZE), row=Math.floor(gy/CELL_SIZE);
+      if(col<0||col>=COLS||row<0||row>=ROWS) continue;
+      const k=keyOf(col,row);
+      if(!counts.has(k)) counts.set(k,{hit:0,total:0,d1Hit:0,d1Tot:0,d2Hit:0,d2Tot:0});
+      const obj=counts.get(k);
+      if(hit) obj.hit++;
+      obj.total++;
+      if(useDiag){
+        const cx = (gx % CELL_SIZE);
+        const cy = (gy % CELL_SIZE);
+        if (Math.abs(cx - cy) <= diagWidth){ obj.d1Tot++; if(hit) obj.d1Hit++; }
+        if (Math.abs(cx + cy - (CELL_SIZE - 1)) <= diagWidth){ obj.d2Tot++; if(hit) obj.d2Hit++; }
+      }
+    }
+  }
+
+  counts.forEach((obj,k)=>{
+    const baseOk = (obj.hit/obj.total) >= ratioThr;
+    let ok = baseOk;
+    if (useDiag){
+      const d1Ok = obj.d1Tot>0 ? (obj.d1Hit/obj.d1Tot)>=ratioThr : false;
+      const d2Ok = obj.d2Tot>0 ? (obj.d2Hit/obj.d2Tot)>=ratioThr : false;
+      ok = d1Ok && d2Ok;
+    }
+    if (overwriteMode) {
+      setCellByKey(k, ok ? 3 : 0, 'parse');  // ✅ 解析不计入热力
+    } else {
+      if (ok) setCellByKey(k, 3, 'parse');   // ✅ 解析不计入热力
+    }
+  });
+
+  drawGrid();
+  redrawAllX();
+  selParse.hasBox = false; selParse.active = false;
+  redrawUiOverlay();
+});
+
+document.getElementById('clearXBtn').addEventListener('click',()=>{
+  if(marked.size === 0) return;
+  if(confirm('确认清空所有绘图吗？')){
+    pushHistory();
+    const keys = Array.from(marked.keys());
+    for(const k of keys){
+      setCellByKey(k, 0, 'edit', true);
+    }
+    drawGrid(); redrawAllX();
+  }
+});
+
+/** ======= 复制/粘贴 ======= **/
+const Transform = { NONE:'none', FLIP_X:'flipx', FLIP_Y:'flipy' };
+let currentTransform = Transform.NONE;
+
+const transformBtn = document.getElementById('transformBtn');
+function updateTransformBtn(){
+  if(currentTransform === Transform.NONE) transformBtn.textContent = '变换：原样';
+  else if(currentTransform === Transform.FLIP_X) transformBtn.textContent = '变换：左右';
+  else transformBtn.textContent = '变换：上下';
+}
+function cycleTransform(){
+  if(currentTransform === Transform.NONE) currentTransform = Transform.FLIP_X;
+  else if(currentTransform === Transform.FLIP_X) currentTransform = Transform.FLIP_Y;
+  else currentTransform = Transform.NONE;
+  updateTransformBtn();
+  if(pastePreview.active) recomputePastePreviewCells();
+}
+transformBtn.addEventListener('click', ()=> cycleTransform());
+updateTransformBtn();
+
+let clipboard = null;
+let moveArmed = false;
+let moveSourceRect = null;
+
+function getCellRectFromSel(sel){
+  const {x,y,w,h} = rectFromSel(sel);
+  const c0 = Math.floor(x / CELL_SIZE);
+  const r0 = Math.floor(y / CELL_SIZE);
+  const c1 = Math.floor((x+w-1) / CELL_SIZE);
+  const r1 = Math.floor((y+h-1) / CELL_SIZE);
+  return {c0,r0,c1,r1};
+}
+function deleteXsInCellRect(rect){
+  if(!rect) return;
+  for(let r=rect.r0; r<=rect.r1; r++){
+    for(let c=rect.c0; c<=rect.c1; c++){
+      if(c<0||c>=COLS||r<0||r>=ROWS) continue;
+      setCell(c, r, 0);
+    }
+  }
+}
+
+function makeClipboardFromSelection(){
+  if(!selCopy.hasBox) return null;
+  const {x,y,w,h} = rectFromSel(selCopy);
+  const c0 = Math.floor(x / CELL_SIZE);
+  const r0 = Math.floor(y / CELL_SIZE);
+  const c1 = Math.floor((x+w-1) / CELL_SIZE);
+  const r1 = Math.floor((y+h-1) / CELL_SIZE);
+  const cells = [];
+  for(let r=r0; r<=r1; r++){
+    for(let c=c0; c<=c1; c++){
+      if(c<0||c>=COLS||r<0||r>=ROWS) continue;
+      const k=keyOf(c,r);
+      const val = marked.get(k);
+      if(val) cells.push({dx: c - c0, dy: r - r0, val: val});
+    }
+  }
+  return {cells, w:(c1-c0+1), h:(r1-r0+1)};
+}
+
+function applyTransformToCell(dx, dy, val, clip){
+  let x = dx, y = dy, v = val;
+  if(currentTransform === Transform.FLIP_X) {
+    x = (clip.w - 1) - dx;
+    if(v === 1) v = 2; else if(v === 2) v = 1;
+  }
+  else if(currentTransform === Transform.FLIP_Y) {
+    y = (clip.h - 1) - dy;
+    if(v === 1) v = 2; else if(v === 2) v = 1;
+  }
+  return {dx:x, dy:y, val:v};
+}
+
+const pastePreview = { active:false, anchor:{c:0,r:0}, cells:[] };
+function getCenteredAnchorFromCursor(col, row){
+  if(!clipboard) return {c:col, r:row};
+  const offC = Math.floor((clipboard.w - 1) / 2);
+  const offR = Math.floor((clipboard.h - 1) / 2);
+  return { c: col - offC, r: row - offR };
+}
+
+function cancelPastePreview(){
+  if(!pastePreview.active) return;
+  pastePreview.active = false;
+  pastePreview.cells = [];
+  refreshUiPointerCapture();
+  redrawUiOverlay();
+}
+
+function startPastePreview(){
+  if(!clipboard) return;
+  pastePreview.active = true;
+  if(moveArmed && selCopy.hasBox){ moveSourceRect = getCellRectFromSel(selCopy); }
+  refreshUiPointerCapture();
+  recomputePastePreviewCells();
+  redrawUiOverlay();
+}
+
+function recomputePastePreviewCells(){
+  if(!pastePreview.active || !clipboard) return;
+  const a = pastePreview.anchor;
+  const list = [];
+  for(const cell of clipboard.cells){
+    const t = applyTransformToCell(cell.dx, cell.dy, cell.val, clipboard);
+    const c = a.c + t.dx;
+    const r = a.r + t.dy;
+    if(c<0||c>=COLS||r<0||r>=ROWS) continue;
+    list.push({c,r,val:t.val});
+  }
+  pastePreview.cells = list;
+  redrawUiOverlay();
+}
+
+let lastPasteAnchor = null;
+let prevPasteAnchor = null;
+let tileVector = null;
+
+function commitPaste(){
+  if(!pastePreview.active || !clipboard) return;
+  pushHistory();
+  if(moveArmed && moveSourceRect){ deleteXsInCellRect(moveSourceRect); }
+  for(const {c,r,val} of pastePreview.cells){
+    setCell(c, r, val || 3);
+  }
+  drawGrid();
+  redrawAllX();
+  prevPasteAnchor = lastPasteAnchor ? {c:lastPasteAnchor.c, r:lastPasteAnchor.r} : null;
+  lastPasteAnchor = {c: pastePreview.anchor.c, r: pastePreview.anchor.r};
+  if(prevPasteAnchor){
+    const dc = lastPasteAnchor.c - prevPasteAnchor.c;
+    const dr = lastPasteAnchor.r - prevPasteAnchor.r;
+    if(!(dc === 0 && dr === 0)){ tileVector = {dc, dr}; }
+  }
+  cancelPastePreview();
+  moveArmed = false; moveSourceRect = null;
+}
+
+uiCanvas.addEventListener('mousedown',(e)=>{
+  const pt = canvasPointFromEvent(e, uiCanvas);
+  if(pastePreview.active){
+    const {col,row} = colRowFromPoint(pt);
+    pastePreview.anchor = getCenteredAnchorFromCursor(col, row);
+    recomputePastePreviewCells();
+    commitPaste();
+    return;
+  }
+  if(modeSelect){
+    selParse.active=true; selParse.hasBox=true;
+    selParse.x0=selParse.x1=pt.x; selParse.y0=selParse.y1=pt.y;
+    clampSelObj(selParse);
+    redrawUiOverlay();
+    return;
+  }
+  if(copyMode){
+    selCopy.active=true; selCopy.hasBox=true;
+    selCopy.x0=selCopy.x1=pt.x; selCopy.y0=selCopy.y1=pt.y;
+    clampSelObj(selCopy);
+    redrawUiOverlay();
+    return;
+  }
+});
+
+uiCanvas.addEventListener('mousemove',(e)=>{
+  const pt = canvasPointFromEvent(e, uiCanvas);
+  if(pastePreview.active){
+    const {col,row} = colRowFromPoint(pt);
+    pastePreview.anchor = getCenteredAnchorFromCursor(col, row);
+    recomputePastePreviewCells();
+    return;
+  }
+  if(modeSelect && selParse.active){
+    selParse.x1=pt.x; selParse.y1=pt.y;
+    clampSelObj(selParse);
+    redrawUiOverlay();
+    return;
+  }
+  if(copyMode && selCopy.active){
+    selCopy.x1=pt.x; selCopy.y1=pt.y;
+    clampSelObj(selCopy);
+    redrawUiOverlay();
+    return;
+  }
+});
+
+window.addEventListener('mouseup',()=>{
+  if(modeSelect && selParse.active){ selParse.active=false; clampSelObj(selParse); redrawUiOverlay(); }
+  if(copyMode && selCopy.active){ selCopy.active=false; clampSelObj(selCopy); redrawUiOverlay(); }
+});
+
+/** ======= 素材库 & 自动修复旧数据 ======= **/
+const STAMP_LS_KEY = 'grid_editor_stamps_v1';
+const stampNameInput = document.getElementById('stampName');
+const saveStampBtn = document.getElementById('saveStampBtn');
+const stampGrid = document.getElementById('stampGrid');
+const stampGroupFilter = document.getElementById('stampGroupFilter');
+
+const STAMP_SORT_KEY = 'grid_editor_stamp_sort_v1';
+const stampSortBtn = document.getElementById('stampSortBtn');
+let stampSortMode = localStorage.getItem(STAMP_SORT_KEY) || 'time';
+
+function updateStampSortBtn(){
+  stampSortBtn.textContent = stampSortMode === 'time' ? '排序：时间' : '排序：名称';
+}
+updateStampSortBtn();
+
+stampSortBtn.addEventListener('click', ()=>{
+  stampSortMode = (stampSortMode === 'time') ? 'name' : 'time';
+  localStorage.setItem(STAMP_SORT_KEY, stampSortMode);
+  updateStampSortBtn();
+  renderStampLibrary();
+});
+
+function loadStampsFromStorage(){
+  try{
+    const raw = localStorage.getItem(STAMP_LS_KEY);
+    if(!raw) return [];
+    let list = JSON.parse(raw);
+    if(!Array.isArray(list)) return [];
+    let changed = false;
+    list.forEach(s => { if(!s.id){ s.id = getUUID(); changed = true; }});
+    if(changed) saveStampsToStorage(list);
+    return list;
+  }catch(e){ return []; }
+}
+function saveStampsToStorage(list){
+  localStorage.setItem(STAMP_LS_KEY, JSON.stringify(list));
+}
+function getUUID(){ return (crypto?.randomUUID ? crypto.randomUUID() : Date.now() + Math.random().toString()); }
+function getNowStamp(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function normalizeClipboard(clip){
+  if(!clip || typeof clip !== 'object') return null;
+  if(!Array.isArray(clip.cells)) return null;
+  const cells = clip.cells
+    .filter(c => c && Number.isFinite(c.dx) && Number.isFinite(c.dy))
+    .map(c => ({dx: Math.round(c.dx), dy: Math.round(c.dy), val: c.val || 3}));
+  const w = Math.max(1, Math.round(clip.w || 10));
+  const h = Math.max(1, Math.round(clip.h || 10));
+  return {cells, w, h};
+}
+function getClipboardForStamp(){
+  if(clipboard && clipboard.cells && clipboard.cells.length) return normalizeClipboard(clipboard);
+  if(copyMode && selCopy.hasBox){ return normalizeClipboard(makeClipboardFromSelection()); }
+  return null;
+}
+
+function parseStampName(raw){
+  const s = (raw || '').trim();
+  const idx = s.indexOf('/');
+  if(idx > 0){
+    return {group: s.slice(0, idx).trim() || '未分类', displayName: s.slice(idx+1).trim() || s};
+  }
+  return {group: '未分类', displayName: s};
+}
+
+function saveStampFromClipboard(name){
+  const nm = (name || '').trim();
+  if(!nm){ alert('请输入素材名'); return false; }
+  const clip = getClipboardForStamp();
+  if(!clip || !clip.cells || clip.cells.length === 0){
+    alert('请先在【复制模式】下框选有内容的区域，并按 Cmd+C 复制');
+    return false;
+  }
+  const {group, displayName} = parseStampName(nm);
+  const list = loadStampsFromStorage();
+  const now = getNowStamp();
+  const existing = list.find(x => x.name === nm);
+  if(existing){
+    existing.clip = clip; existing.group = group; existing.displayName = displayName; existing.updatedAt = now;
+  }else{
+    list.unshift({ id: getUUID(), name: nm, group, displayName, clip, createdAt: now, updatedAt: now });
+  }
+  saveStampsToStorage(list);
+  renderStampLibrary();
+  return true;
+}
+
+function loadStampToClipboardById(id){
+  const list = loadStampsFromStorage();
+  const s = list.find(x => x.id === id);
+  if(!s || !s.clip) return null;
+  return normalizeClipboard(s.clip);
+}
+
+function drawThumb(canvas, clip){
+  const ctx = canvas.getContext('2d');
+  const W = 80, H = 80;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0,0,W,H);
+  if(!clip || !clip.w || !clip.h) return;
+  const pad = 6;
+  const scale = Math.min((W-pad*2)/clip.w, (H-pad*2)/clip.h);
+  const cell = Math.max(1, Math.floor(scale));
+  const ox = Math.floor((W - clip.w*cell)/2);
+  const oy = Math.floor((H - clip.h*cell)/2);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  for(const c of clip.cells){
+    const x = ox + c.dx * cell;
+    const y = oy + c.dy * cell;
+    const v = c.val || 3;
+    ctx.beginPath();
+    if(v & 1) { ctx.moveTo(x, y+cell); ctx.lineTo(x+cell, y); }
+    if(v & 2) { ctx.moveTo(x, y); ctx.lineTo(x+cell, y+cell); }
+    ctx.stroke();
+  }
+}
+
+function renderStampLibrary(){
+  const list = loadStampsFromStorage();
+  const groups = Array.from(new Set(list.map(s => s.group || '未分类'))).sort((a,b)=>a.localeCompare(b,'zh-CN'));
+  const current = stampGroupFilter.value || '全部';
+  stampGroupFilter.innerHTML = '';
+  const optAll = document.createElement('option'); optAll.value = '全部'; optAll.textContent = '全部分类'; stampGroupFilter.appendChild(optAll);
+  for(const g of groups){ const opt = document.createElement('option'); opt.value = g; opt.textContent = g; stampGroupFilter.appendChild(opt); }
+  stampGroupFilter.value = groups.includes(current) ? current : '全部';
+  stampGrid.innerHTML = '';
+  const selectedGroup = stampGroupFilter.value;
+  const shown = list.filter(s => selectedGroup === '全部' ? true : (s.group === selectedGroup));
+
+  if(stampSortMode === 'time'){
+    const toTime = (s) => {
+      const t = (s.updatedAt || s.createdAt || '').replace(' ', 'T');
+      const ms = Date.parse(t);
+      return Number.isFinite(ms) ? ms : 0;
+    };
+    shown.sort((a,b)=> toTime(b) - toTime(a));
+  }else{
+    const collator = new Intl.Collator('zh-Hans', { numeric:true, sensitivity:'base' });
+    const getName = (s) => (s.displayName || s.name || '').trim();
+    shown.sort((a,b)=> collator.compare(getName(a), getName(b)));
+  }
+
+  if(shown.length === 0){
+    const div = document.createElement('div');
+    div.style.cssText = 'font-size:12px; opacity:.75; color:#111; padding:8px 2px;';
+    div.textContent = '暂无素材。提示：复制/移动模式下框选并 Cmd+C';
+    stampGrid.appendChild(div);
+    return;
+  }
+  for(const s of shown){
+    const card = document.createElement('div'); card.className = 'stamp-card';
+    const thumb = document.createElement('canvas'); thumb.className = 'stamp-thumb';
+    const nm = document.createElement('div'); nm.className = 'stamp-name'; nm.textContent = s.displayName || s.name; nm.title = s.name;
+    const actions = document.createElement('div'); actions.className = 'stamp-actions';
+    const useBtn = document.createElement('button'); useBtn.className = 'btn-light'; useBtn.textContent = '使用';
+    const renameBtn = document.createElement('button'); renameBtn.className = 'btn-light'; renameBtn.textContent = '改名';
+    const delBtn = document.createElement('button'); delBtn.className = 'btn-light'; delBtn.textContent = '删除';
+    actions.append(useBtn, renameBtn, delBtn);
+    card.append(thumb, nm, actions);
+    drawThumb(thumb, normalizeClipboard(s.clip));
+
+    useBtn.addEventListener('click', ()=>{
+      const clip2 = loadStampToClipboardById(s.id);
+      if(!clip2){ alert('素材损坏'); return; }
+      clipboard = clip2;
+      if(!copyMode) setCopyMode(true);
+      selParse.hasBox = false; selParse.active = false;
+      selCopy.hasBox = false;  selCopy.active = false;
+      cancelPastePreview();
+      if(document.activeElement?.blur) document.activeElement.blur();
+      startPastePreview();
+      toggleStampPanel(false);
+    });
+    renameBtn.addEventListener('click', ()=>{
+      const newName = prompt('修改素材名称 (格式: 分类/名称)', s.name);
+      if(!newName || !newName.trim() || newName.trim() === s.name) return;
+      const newList = loadStampsFromStorage();
+      const target = newList.find(x => x.id === s.id);
+      if(target){
+        target.name = newName.trim();
+        const parsed = parseStampName(target.name);
+        target.group = parsed.group;
+        target.displayName = parsed.displayName;
+        target.updatedAt = getNowStamp();
+        saveStampsToStorage(newList);
+        renderStampLibrary();
+      }
+    });
+    delBtn.addEventListener('click', ()=>{
+      if(!confirm(`确认删除“${s.displayName}”？`)) return;
+      const next = loadStampsFromStorage().filter(x => x.id !== s.id);
+      saveStampsToStorage(next);
+      renderStampLibrary();
+    });
+    stampGrid.appendChild(card);
+  }
+}
+
+saveStampBtn.addEventListener('click', ()=>{
+  const nm = (stampNameInput.value || '').trim();
+  const ok = saveStampFromClipboard(nm);
+  if(ok) stampNameInput.value = '';
+});
+stampGroupFilter.addEventListener('change', ()=> renderStampLibrary());
+
+window.addEventListener('keydown', (e)=>{
+  const key = e.key;
+  if((key === 'z' || key === 'Z') && (e.metaKey || e.ctrlKey) && !e.shiftKey){
+    e.preventDefault();
+    if(pastePreview.active){ cancelPastePreview(); moveArmed=false; moveSourceRect=null; return; }
+    undoLast();
+    return;
+  }
+  if((key === 'Delete' || key === 'Backspace') && selParse.hasBox){
+    const ae = document.activeElement;
+    if(!ae || (ae.tagName!=='INPUT' && ae.tagName!=='TEXTAREA')){
+      e.preventDefault(); deleteMarkedInSelParse();
+    }
+    return;
+  }
+  if(key === 'Escape'){
+    if(pastePreview.active){ cancelPastePreview(); moveArmed = false; moveSourceRect = null; return; }
+    if(cancelParseSelectionOnly()) return;
+    if(copyMode){ setCopyMode(false); return; }
+    return;
+  }
+  if(key === 'Enter' && pastePreview.active){ commitPaste(); return; }
+  if((key === 'v' || key === 'V') && e.shiftKey && !(e.metaKey || e.ctrlKey)){ e.preventDefault(); cycleTransform(); return; }
+  if((key === 's' || key === 'S') && (e.metaKey || e.ctrlKey) && e.shiftKey){
+    if(document.activeElement?.tagName === 'INPUT') return;
+    e.preventDefault();
+    const nm = (stampNameInput.value || '').trim();
+    if(!nm){ stampNameInput.value=`未分类/素材-${new Date().toISOString().slice(0,10)}`; stampNameInput.focus(); return; }
+    if(saveStampFromClipboard(nm)) stampNameInput.value='';
+    return;
+  }
+  if((key === 'c' || key === 'C') && (e.metaKey || e.ctrlKey) && !e.shiftKey){
+    if(!copyMode) return;
+    e.preventDefault();
+    const clip = makeClipboardFromSelection();
+    if(clip && clip.cells.length > 0){
+      clipboard = clip;
+      showToast("已复制");
+    } else {
+      showToast("选区为空，无法复制");
+    }
+    return;
+  }
+  if((key === 'v' || key === 'V') && (e.metaKey || e.ctrlKey) && !e.shiftKey){
+    if(!copyMode) return;
+    e.preventDefault();
+    if(clipboard) startPastePreview();
+    else showToast("剪贴板为空");
+    return;
+  }
+  if((key === 'm' || key === 'M') && !e.metaKey && !e.ctrlKey){
+    if(!copyMode || !selCopy.hasBox) return;
+    e.preventDefault();
+    const clip = makeClipboardFromSelection();
+    if(!clip || !clip.cells.length) return;
+    clipboard = clip; moveArmed = true; startPastePreview();
+    return;
+  }
+  if((key === 'd' || key === 'D') && (e.metaKey || e.ctrlKey) && !e.shiftKey){
+    if(!copyMode || !clipboard || !lastPasteAnchor || !tileVector) return;
+    e.preventDefault();
+    pastePreview.active = true;
+    pastePreview.anchor = {c: lastPasteAnchor.c + tileVector.dc, r: lastPasteAnchor.r + tileVector.dr};
+    recomputePastePreviewCells();
+    commitPaste();
+    return;
+  }
+});
+
+/** ======= 版本 / 导出 / 初始化 ======= **/
+const LS_KEY = 'grid_editor_versions_v1';
+const versionNameInput = document.getElementById('versionName');
+const saveVersionBtn = document.getElementById('saveVersionBtn');
+const versionSelect = document.getElementById('versionSelect');
+const loadVersionBtn = document.getElementById('loadVersionBtn');
+const deleteVersionBtn = document.getElementById('deleteVersionBtn');
+const exportVersionBtn = document.getElementById('exportVersionBtn');
+const importVersionInput = document.getElementById('importVersionInput');
+
+function loadVersionsFromStorage(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(!raw) return [];
+    return JSON.parse(raw);
+  }catch(e){ return []; }
+}
+function saveVersionsToStorage(list){
+  localStorage.setItem(LS_KEY, JSON.stringify(list));
+}
+function refreshVersionSelect(){
+  const list = loadVersionsFromStorage();
+  versionSelect.innerHTML = '';
+  const opt0 = document.createElement('option'); opt0.value = ''; opt0.textContent = '选择版本…'; versionSelect.appendChild(opt0);
+  for(const v of list){
+    const opt = document.createElement('option'); opt.value = v.id; opt.textContent = v.name; opt.title = `更新时间：${v.updatedAt}`; versionSelect.appendChild(opt);
+  }
+}
+function snapshotMarkedToArray(){ return Array.from(marked.entries()); }
+function snapshotTouchCountToArray(){ return Array.from(touchCount, v => v >>> 0); }
+
+function restoreMarkedFromArray(arr){
+  const nextMap = new Map();
+  for(const item of arr){
+    if(Array.isArray(item)){ nextMap.set(item[0], item[1]); }
+    else { nextMap.set(item, 3); }
+  }
+  const keys = new Set([...marked.keys(), ...nextMap.keys()]);
+  for(const k of keys){
+    const curVal = marked.get(k) || 0;
+    const nextVal = nextMap.get(k) || 0;
+    if(curVal !== nextVal){
+      setCellByKey(k, nextVal, 'edit', true);
+    }
+  }
+}
+
+function restoreTouchCountFromArray(arr){
+  touchCount.fill(0);
+  if(!Array.isArray(arr)) return;
+  const n = Math.min(arr.length, touchCount.length);
+  for(let i=0; i<n; i++){
+    touchCount[i] = (arr[i] >>> 0);
+  }
+}
+
+saveVersionBtn.addEventListener('click', ()=>{
+  const name = (versionNameInput.value || '').trim();
+  if(!name){ alert('请输入版本名'); return; }
+  const list = loadVersionsFromStorage();
+  const now = getNowStamp();
+
+  const payload = {
+    data: snapshotMarkedToArray(),
+    touchCount: snapshotTouchCountToArray()
+  };
+
+  const existing = list.find(x => x.name === name);
+  if(existing){
+    existing.data = payload.data;
+    existing.touchCount = payload.touchCount;
+    existing.updatedAt = now;
+  }else{
+    list.unshift({
+      id: getUUID(),
+      name,
+      data: payload.data,
+      touchCount: payload.touchCount,
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+  saveVersionsToStorage(list); refreshVersionSelect(); showToast("版本已保存");
+});
+
+loadVersionBtn.addEventListener('click', ()=>{
+  const id = versionSelect.value;
+  if(!id) return;
+  const list = loadVersionsFromStorage();
+  const v = list.find(x => x.id === id);
+  if(v){
+    pushHistory();
+    restoreMarkedFromArray(v.data || []);
+    restoreTouchCountFromArray(v.touchCount || []);
+    drawGrid(); redrawAllX();
+    showToast("已加载版本");
+  }
+});
+
+deleteVersionBtn.addEventListener('click', ()=>{
+  const id = versionSelect.value;
+  if(!id) return;
+  if(confirm('删除此版本？')){
+    const list = loadVersionsFromStorage();
+    const next = list.filter(x => x.id !== id);
+    saveVersionsToStorage(next); refreshVersionSelect();
+  }
+});
+
+exportVersionBtn.addEventListener('click', ()=>{
+  const id = versionSelect.value;
+  const list = loadVersionsFromStorage();
+
+  // ✅ 优先导出当前选中的单个版本；若未选择，则导出全部（兼容旧习惯）
+  if(id){
+    const v = list.find(x => x.id === id);
+    if(!v){ alert('未找到所选版本'); return; }
+
+    const safeName = String(v.name || 'version')
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .trim() || 'version';
+
+    const blob = new Blob([JSON.stringify(v, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${safeName}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+    return;
+  }
+
+  // 未选择版本时，导出全部版本数组
+  const blob = new Blob([JSON.stringify(list, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'grid_versions.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+});
+
+importVersionInput.addEventListener('change', async (e)=>{
+  const file = e.target.files?.[0];
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const incomingRaw = JSON.parse(text);
+
+    // ✅ 兼容两种格式：
+    // 1) 单个版本对象 {id,name,data,touchCount,...}
+    // 2) 旧版/全量导出数组 [ {...}, {...} ]
+    const incoming = Array.isArray(incomingRaw) ? incomingRaw : [incomingRaw];
+
+    const current = loadVersionsFromStorage();
+    const map = new Map(current.map(v => [v.name, v]));
+
+    for(const v of incoming){
+      if(!v || !Array.isArray(v.data)) continue;
+
+      // 兼容旧版本：没有 touchCount 时补空数组
+      if(!Array.isArray(v.touchCount)) v.touchCount = [];
+
+      // 如果没有 id，补一个
+      if(!v.id) v.id = getUUID();
+
+      map.set(v.name, v);
+    }
+
+    saveVersionsToStorage(Array.from(map.values()));
+    refreshVersionSelect();
+    alert('导入完成');
+  }catch(err){
+    alert('导入失败');
+  }finally{
+    importVersionInput.value = '';
+  }
+});
+
+/** ======= 导出图像 ======= **/
+const exportFormat = document.getElementById('exportFormat');
+const exportAllBtn = document.getElementById('exportAllBtn');
+const exportSelBtn = document.getElementById('exportSelBtn');
+
+function renderCompositeToCanvas(outCtx, x0, y0, w, h){
+  outCtx.save(); outCtx.fillStyle = BG_COLOR; outCtx.fillRect(0,0,w,h); outCtx.restore();
+  outCtx.save(); outCtx.strokeStyle = LINE_COLOR; outCtx.lineWidth = 1; outCtx.beginPath();
+  for(let gx=0; gx<=WIDTH; gx+=CELL_SIZE){ const x = gx - x0; if(x < 0 || x > w) continue; outCtx.moveTo(x+0.5, 0); outCtx.lineTo(x+0.5, h); }
+  for(let gy=0; gy<=HEIGHT; gy+=CELL_SIZE){ const y = gy - y0; if(y < 0 || y > h) continue; outCtx.moveTo(0, y+0.5); outCtx.lineTo(w, y+0.5); }
+  outCtx.stroke(); outCtx.restore();
+  outCtx.save(); outCtx.strokeStyle = X_COLOR; outCtx.lineWidth = 1;
+  for(const [k, v] of marked){
+    const [c,r] = k.split(',').map(Number);
+    const cellX = c*CELL_SIZE; const cellY = r*CELL_SIZE;
+    if(cellX + CELL_SIZE < x0 || cellX > x0 + w) continue;
+    if(cellY + CELL_SIZE < y0 || cellY > y0 + h) continue;
+    const x = cellX - x0; const y = cellY - y0;
+    outCtx.beginPath();
+    if(v & 1) { outCtx.moveTo(x, y+CELL_SIZE); outCtx.lineTo(x+CELL_SIZE, y); }
+    if(v & 2) { outCtx.moveTo(x, y); outCtx.lineTo(x+CELL_SIZE, y+CELL_SIZE); }
+    outCtx.stroke();
+  }
+  outCtx.restore();
+}
+
+function downloadCanvas(canvas, mime){
+  const ext = (mime === 'image/jpeg') ? 'jpg' : 'png';
+  const a = document.createElement('a'); a.download = `export_${Date.now()}.${ext}`;
+  a.href = canvas.toDataURL(mime);
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+exportAllBtn.addEventListener('click', ()=>{
+  const off = document.createElement('canvas'); off.width = WIDTH; off.height = HEIGHT;
+  const octx = off.getContext('2d'); renderCompositeToCanvas(octx, 0, 0, WIDTH, HEIGHT);
+  downloadCanvas(off, exportFormat.value==='jpeg'?'image/jpeg':'image/png');
+});
+
+let exportSelArmed = false;
+exportSelBtn.addEventListener('click', ()=>{
+  if(selParse.hasBox){
+    const {x,y,w,h} = rectFromSel(selParse);
+    const off = document.createElement('canvas');
+    off.width = w; off.height = h;
+    renderCompositeToCanvas(off.getContext('2d'), x, y, w, h);
+    downloadCanvas(off, exportFormat.value==='jpeg'?'image/jpeg':'image/png');
+    exportSelArmed = false; selParse.hasBox = false; selParse.active = false;
+    redrawUiOverlay(); setModeSelect(false);
+    return;
+  }
+  if(!exportSelArmed){
+    exportSelArmed = true; setModeSelect(true);
+    alert('请拖拽框选导出区域，然后再次点击“导出选区”');
+    return;
+  }
+  alert('尚未框选区域');
+});
+
+/** ======= ✅ 导出 touchCount 热力图（透明 PNG） ======= **/
+const exportHeatmapBtn = document.getElementById('exportHeatmapBtn');
+function exportHeatmapPNG(){
+  let maxV = 0;
+  for(let i=0;i<touchCount.length;i++){
+    if(touchCount[i] > maxV) maxV = touchCount[i];
+  }
+  if(maxV === 0){
+    alert('热力图为空：尚无“修改”行为（touchCount 全为 0）。');
+    return;
+  }
+
+  const off = document.createElement('canvas');
+  off.width = WIDTH; off.height = HEIGHT;
+  const ctx = off.getContext('2d');
+
+  ctx.clearRect(0,0,WIDTH,HEIGHT);
+
+  const denom = Math.log1p(maxV);
+  const maxAlpha = 0.85;
+
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      const v = touchCount[idxOf(c,r)];
+      if(v === 0) continue;
+      const a = Math.log1p(v) / denom;
+      const alpha = Math.min(maxAlpha, a * maxAlpha);
+      ctx.fillStyle = `rgba(255,0,0,${alpha})`;
+      ctx.fillRect(c*CELL_SIZE, r*CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    }
+  }
+
+  const a = document.createElement('a');
+  a.download = `heatmap_${Date.now()}.png`;
+  a.href = off.toDataURL('image/png');
+  document.body.appendChild(a); a.click(); a.remove();
+}
+if(exportHeatmapBtn){
+  exportHeatmapBtn.addEventListener('click', exportHeatmapPNG);
+}
+
+/** ======= ✅ 新增：导出热力数据 JSON（rows/cols + 1D touchCount） ======= **/
+const exportHeatmapDataBtn = document.getElementById('exportHeatmapDataBtn');
+function exportHeatmapDataJSON(){
+  // 计算 maxCount（便于 analysis.html 默认阈值）
+  let maxV = 0;
+  for(let i=0;i<touchCount.length;i++){
+    if(touchCount[i] > maxV) maxV = touchCount[i];
+  }
+
+  const payload = {
+    rows: ROWS,
+    cols: COLS,
+    cell_size: CELL_SIZE,
+    maxCount: maxV,
+    // 说明：touchCount 已排除 parse（解析）产生的变化
+    note: "touchCount counts non-parse edits only (source !== 'parse'). 1D array index = row*cols + col.",
+    data: Array.from(touchCount) // 1D length = rows*cols
+  };
+
+  const blob = new Blob([JSON.stringify(payload)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.download = `touchCount_${Date.now()}.json`;
+  a.href = URL.createObjectURL(blob);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+if(exportHeatmapDataBtn){
+  exportHeatmapDataBtn.addEventListener('click', exportHeatmapDataJSON);
+}
+
+/** ======= ✅ 清零热力计数（不影响图案；确认弹窗防误触） ======= **/
+const resetHeatmapBtn = document.getElementById('resetHeatmapBtn');
+function resetHeatmapCounts(){
+  if(confirm('确认清零热力计数吗？\n（不会影响当前图案内容，仅清空“修改热力”统计）')){
+    touchCount.fill(0);
+    everFilled.fill(0);
+    showToast('热力计数已清零');
+  }
+}
+if(resetHeatmapBtn){
+  resetHeatmapBtn.addEventListener('click', resetHeatmapCounts);
+}
+
+// 下拉菜单纠偏
+function ensureDropdownInViewport(panelEl){
+  if(!panelEl || !panelEl.classList.contains('open')) return;
+  panelEl.style.top = 'calc(100% + 8px)'; panelEl.style.bottom = 'auto';
+  panelEl.style.left = ''; panelEl.style.right = '0'; panelEl.style.transform = '';
+  requestAnimationFrame(() => {
+    const rect = panelEl.getBoundingClientRect();
+    if(rect.left < 10) { panelEl.style.right = 'auto'; panelEl.style.left = '0'; panelEl.style.transform = `translateX(${10 - rect.left}px)`; }
+  });
+}
+
+/** ✅ 修复：补齐下拉相关 DOM 引用（避免 ReferenceError 影响整页逻辑） */
+const saveExportBtn = document.getElementById('saveExportBtn');
+const saveExportPanel = document.getElementById('saveExportPanel');
+const stampDropdownBtn = document.getElementById('stampDropdownBtn');
+const stampPanel = document.getElementById('stampPanel');
+
+function toggleSaveExportPanel(force){
+  const next = (typeof force === 'boolean') ? force : !saveExportPanel.classList.contains('open');
+  saveExportPanel.classList.toggle('open', next);
+  if(next){ stampPanel.classList.remove('open'); updateCanvasTopPadding(); ensureDropdownInViewport(saveExportPanel); }
+}
+function toggleStampPanel(force){
+  const next = (typeof force === 'boolean') ? force : !stampPanel.classList.contains('open');
+  stampPanel.classList.toggle('open', next);
+  if(next){ saveExportPanel.classList.remove('open'); updateCanvasTopPadding(); ensureDropdownInViewport(stampPanel); renderStampLibrary(); }
+}
+saveExportBtn.addEventListener('click', ()=> toggleSaveExportPanel());
+stampDropdownBtn.addEventListener('click', ()=> toggleStampPanel());
+window.addEventListener('mousedown', (e)=>{
+  if(!(e.target instanceof Element)) return;
+  if(saveExportPanel.classList.contains('open') && !e.target.closest('#saveExportDropdown')) toggleSaveExportPanel(false);
+  if(stampPanel.classList.contains('open') && !e.target.closest('#stampDropdown')) toggleStampPanel(false);
+});
+
+function setModeSelect(on){
+  modeSelect = on;
+  modeBtn.textContent = `框选模式：${on?'开':'关'}`;
+  modeBtn.classList.remove('toggleOff','toggleOnBlue');
+  modeBtn.classList.add(on ? 'toggleOnBlue' : 'toggleOff');
+  if(on){ if(moveMode) setMoveMode(false); if(copyMode) setCopyMode(false); }
+  else exportSelArmed = false;
+  refreshUiPointerCapture();
+}
+function setCopyMode(on){
+  copyMode = on;
+  copyModeBtn.textContent = `复制：${on?'开':'关'}`;
+  copyModeBtn.classList.remove('toggleOff','toggleOnBlue');
+  copyModeBtn.classList.add(on ? 'toggleOnBlue' : 'toggleOff');
+  if(on){ if(moveMode) setMoveMode(false); if(modeSelect) setModeSelect(false); selParse.hasBox=false; redrawUiOverlay(); }
+  else{ cancelPastePreview(); moveArmed=false; selCopy.hasBox=false; redrawUiOverlay(); }
+  refreshUiPointerCapture();
+}
+
+modeBtn.addEventListener('click', ()=> setModeSelect(!modeSelect));
+copyModeBtn.addEventListener('click', ()=> setCopyMode(!copyMode));
+
+function init(){
+  /** ✅ 新增：先画坐标标注 */
+  drawTicks();
+
+  drawGrid();
+  updateToggleImgButton();
+
+  // ✅ 强制刷新三种模式按钮的“关”态样式（避免初始 class 残留导致显示不一致）
+  setMoveMode(false);
+  setModeSelect(false);
+  setCopyMode(false);
+
+  refreshUiPointerCapture();
+  redrawUiOverlay();
+
+  refreshVersionSelect();
+  updateCanvasTopPadding();
+  observeToolbarWrapChanges();
+  renderStampLibrary();
+}
+init();
+</script>
+</body>
+</html>
