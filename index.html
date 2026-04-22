@@ -192,9 +192,8 @@ input.slashToggle:checked::after{
     <div class="sep"></div>
 
     <button id="modeSelect" class="toggleOff"  title="【框选模式】用于解析/导出">框选模式：关</button>
-    <button id="parseBtn" title="解析解析选框范围">解析所选区域</button>
+    <button id="parseBtn" title="解析当前选框范围">解析选区</button>
     <button id="deleteSelBtn" title="删除当前框选区域内的图案">删除选区</button>
-    <button id="undoBtn" title="撤销上一步（等同于 Cmd/Ctrl+Z）">撤销</button>
 
     <div class="sep"></div>
 
@@ -293,6 +292,8 @@ input.slashToggle:checked::after{
         <div class="stamp-grid" id="stampGrid"></div>
       </div>
     </div>
+
+    <button id="undoBtn" title="撤销上一步（等同于 Cmd/Ctrl+Z）">撤销</button>
 
     <label id="imgScaleWrap">缩放 <span id="imgScaleVal">100%</span>
       <input id="imgScale" type="range" min="10" max="300" value="100">
@@ -922,6 +923,11 @@ function rectFromSel(sel){
   const w=Math.abs(sel.x1-sel.x0), h=Math.abs(sel.y1-sel.y0);
   return {x,y,w,h};
 }
+function selectionHasArea(sel, minPx=1){
+  if(!sel || !sel.hasBox) return false;
+  const {w,h} = rectFromSel(sel);
+  return w >= minPx && h >= minPx;
+}
 
 function deleteMarkedInSelParse(){
   if(!selParse.hasBox) return false;
@@ -1094,7 +1100,7 @@ const deleteSelBtn = document.getElementById('deleteSelBtn');
 const undoBtn = document.getElementById('undoBtn');
 parseBtn.addEventListener('click', ()=>{
   if(!imageReady){ alert('请先上传图片（底层应能看到绿色边框）'); return; }
-  if(!selParse.hasBox){ alert('请先开启“框选模式”并拖拽一个解析选框'); return; }
+  if(!selectionHasArea(selParse)){ alert('请先开启“框选模式”并拖拽一个有效选框'); return; }
 
   const {x:sx, y:sy, w:sw, h:sh} = rectFromSel(selParse);
   const sxI=Math.floor(sx), syI=Math.floor(sy);
@@ -1166,8 +1172,8 @@ parseBtn.addEventListener('click', ()=>{
 
 if(deleteSelBtn){
   deleteSelBtn.addEventListener('click', ()=>{
-    if(!selParse.hasBox){
-      alert('请先开启“框选模式”并拖拽一个选框');
+    if(!selectionHasArea(selParse)){
+      alert('请先开启“框选模式”并拖拽一个有效选框');
       return;
     }
     const changed = deleteMarkedInSelParse();
@@ -1199,18 +1205,20 @@ document.getElementById('clearXBtn').addEventListener('click',()=>{
 });
 
 /** ======= 复制/粘贴 ======= **/
-const Transform = { NONE:'none', FLIP_X:'flipx', FLIP_Y:'flipy' };
+const Transform = { NONE:'none', FLIP_V:'flipv', FLIP_H:'fliph', ROT90:'rot90' };
 let currentTransform = Transform.NONE;
 
 const transformBtn = document.getElementById('transformBtn');
 function updateTransformBtn(){
   if(currentTransform === Transform.NONE) transformBtn.textContent = '变换：原样';
-  else if(currentTransform === Transform.FLIP_X) transformBtn.textContent = '变换：左右';
-  else transformBtn.textContent = '变换：上下';
+  else if(currentTransform === Transform.FLIP_V) transformBtn.textContent = '变换：垂直';
+  else if(currentTransform === Transform.FLIP_H) transformBtn.textContent = '变换：水平';
+  else transformBtn.textContent = '变换：旋转90°';
 }
 function cycleTransform(){
-  if(currentTransform === Transform.NONE) currentTransform = Transform.FLIP_X;
-  else if(currentTransform === Transform.FLIP_X) currentTransform = Transform.FLIP_Y;
+  if(currentTransform === Transform.NONE) currentTransform = Transform.FLIP_V;
+  else if(currentTransform === Transform.FLIP_V) currentTransform = Transform.FLIP_H;
+  else if(currentTransform === Transform.FLIP_H) currentTransform = Transform.ROT90;
   else currentTransform = Transform.NONE;
   updateTransformBtn();
   if(pastePreview.active) recomputePastePreviewCells();
@@ -1259,14 +1267,24 @@ function makeClipboardFromSelection(){
   return {cells, w:(c1-c0+1), h:(r1-r0+1)};
 }
 
+function getTransformedClipSize(clip){
+  if(!clip) return {w:1, h:1};
+  if(currentTransform === Transform.ROT90) return { w: clip.h, h: clip.w };
+  return { w: clip.w, h: clip.h };
+}
 function applyTransformToCell(dx, dy, val, clip){
   let x = dx, y = dy, v = val;
-  if(currentTransform === Transform.FLIP_X) {
+  if(currentTransform === Transform.FLIP_H) {
     x = (clip.w - 1) - dx;
     if(v === 1) v = 2; else if(v === 2) v = 1;
   }
-  else if(currentTransform === Transform.FLIP_Y) {
+  else if(currentTransform === Transform.FLIP_V) {
     y = (clip.h - 1) - dy;
+    if(v === 1) v = 2; else if(v === 2) v = 1;
+  }
+  else if(currentTransform === Transform.ROT90) {
+    x = (clip.h - 1) - dy;
+    y = dx;
     if(v === 1) v = 2; else if(v === 2) v = 1;
   }
   return {dx:x, dy:y, val:v};
@@ -1275,8 +1293,9 @@ function applyTransformToCell(dx, dy, val, clip){
 const pastePreview = { active:false, anchor:{c:0,r:0}, cells:[] };
 function getCenteredAnchorFromCursor(col, row){
   if(!clipboard) return {c:col, r:row};
-  const offC = Math.floor((clipboard.w - 1) / 2);
-  const offR = Math.floor((clipboard.h - 1) / 2);
+  const size = getTransformedClipSize(clipboard);
+  const offC = Math.floor((size.w - 1) / 2);
+  const offR = Math.floor((size.h - 1) / 2);
   return { c: col - offC, r: row - offR };
 }
 
@@ -1435,12 +1454,31 @@ uiCanvas.addEventListener('touchmove',(e)=>{
 }, {passive:false});
 
 uiCanvas.addEventListener('touchend',(e)=>{
+  const endTouch = e.changedTouches && e.changedTouches[0];
   if(pastePreview.active){
+    if(endTouch){
+      const pt = canvasPointFromEvent({ touches:[endTouch] }, uiCanvas);
+      const {col,row} = colRowFromPoint(pt);
+      pastePreview.anchor = getCenteredAnchorFromCursor(col, row);
+      recomputePastePreviewCells();
+    }
     commitPaste();
     return;
   }
-  if(modeSelect && selParse.active){ selParse.active=false; clampSelObj(selParse); redrawUiOverlay(); return; }
-  if(copyMode && selCopy.active){ selCopy.active=false; clampSelObj(selCopy); redrawUiOverlay(); return; }
+  if(modeSelect && selParse.active){
+    if(endTouch){
+      const pt = canvasPointFromEvent({ touches:[endTouch] }, uiCanvas);
+      selParse.x1 = pt.x; selParse.y1 = pt.y;
+    }
+    selParse.active=false; clampSelObj(selParse); redrawUiOverlay(); return;
+  }
+  if(copyMode && selCopy.active){
+    if(endTouch){
+      const pt = canvasPointFromEvent({ touches:[endTouch] }, uiCanvas);
+      selCopy.x1 = pt.x; selCopy.y1 = pt.y;
+    }
+    selCopy.active=false; clampSelObj(selCopy); redrawUiOverlay(); return;
+  }
 }, {passive:false});
 uiCanvas.addEventListener('touchcancel',()=>{
   if(modeSelect && selParse.active){ selParse.active=false; redrawUiOverlay(); }
@@ -2358,11 +2396,9 @@ function startPinchGesture(e){
   if(e.touches.length !== 2) return;
   const [t1, t2] = e.touches;
   pinchState = {
-    distance: distance(t1, t2),
-    midpoint: midpoint(t1, t2),
-    scale: localViewScale,
-    scrollLeft: container.scrollLeft,
-    scrollTop: container.scrollTop
+    startDistance: distance(t1, t2),
+    startScale: localViewScale,
+    lastMidpoint: midpoint(t1, t2)
   };
 }
 
@@ -2372,15 +2408,21 @@ function movePinchGesture(e){
   const [t1, t2] = e.touches;
   const mid = midpoint(t1, t2);
   const dist = distance(t1, t2);
-  const nextScale = clampLocalScale(pinchState.scale * (dist / Math.max(1, pinchState.distance)));
-  setLocalScale(nextScale, mid.x, mid.y);
-  const dx = mid.x - pinchState.midpoint.x;
-  const dy = mid.y - pinchState.midpoint.y;
-  container.scrollLeft = Math.max(0, container.scrollLeft - dx);
-  container.scrollTop = Math.max(0, container.scrollTop - dy);
-  pinchState.midpoint = mid;
-  pinchState.distance = dist;
-  pinchState.scale = localViewScale;
+
+  const panDx = mid.x - pinchState.lastMidpoint.x;
+  const panDy = mid.y - pinchState.lastMidpoint.y;
+  if(Math.abs(panDx) > 0.5 || Math.abs(panDy) > 0.5){
+    container.scrollLeft = Math.max(0, container.scrollLeft - panDx);
+    container.scrollTop = Math.max(0, container.scrollTop - panDy);
+  }
+
+  const ratio = dist / Math.max(1, pinchState.startDistance);
+  const nextScale = clampLocalScale(pinchState.startScale * ratio);
+  if(Math.abs(nextScale - localViewScale) > 0.02){
+    setLocalScale(nextScale, mid.x, mid.y);
+  }
+
+  pinchState.lastMidpoint = mid;
 }
 
 container.addEventListener('touchstart', (e)=>{
