@@ -208,6 +208,14 @@ input.slashToggle:checked::after{
 
     <div class="sep"></div>
 
+    <label>阈值 <span id="thrVal">200</span>
+      <input id="thr" type="range" min="0" max="255" value="200">
+    </label>
+    <label>像素占比 <span id="ratioVal">0.12</span>
+      <input id="ratio" type="range" min="5" max="95" value="12">
+    </label>
+    <label><input id="brightLine" type="checkbox" checked /> 白线</label>
+    <label><input id="diagMode" type="checkbox" /> 对角判定</label>
     <label title="标红显示 8 邻域全空的独立 X（仅提醒，不做修改）"><input id="chkIsolated" type="checkbox" /> 孤立提示</label>
 
     <div class="sep"></div>
