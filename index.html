@@ -193,6 +193,8 @@ input.slashToggle:checked::after{
 
     <button id="modeSelect" class="toggleOff"  title="【框选模式】用于解析/导出">框选模式：关</button>
     <button id="parseBtn" title="解析解析选框范围">解析所选区域</button>
+    <button id="deleteSelBtn" title="删除当前框选区域内的图案">删除选区</button>
+    <button id="undoBtn" title="撤销上一步（等同于 Cmd/Ctrl+Z）">撤销</button>
 
     <div class="sep"></div>
 
@@ -1087,7 +1089,10 @@ thrRange.addEventListener('input',()=> thrVal.textContent=thrRange.value);
 ratioRange.addEventListener('input',()=> ratioVal.textContent=(ratioRange.value/100).toFixed(2));
 
 let overwriteMode = false; // ✅ 默认叠加（锁定模式下更安全），并移除覆盖/叠加切换按钮
-document.getElementById('parseBtn').addEventListener('click', ()=>{
+const parseBtn = document.getElementById('parseBtn');
+const deleteSelBtn = document.getElementById('deleteSelBtn');
+const undoBtn = document.getElementById('undoBtn');
+parseBtn.addEventListener('click', ()=>{
   if(!imageReady){ alert('请先上传图片（底层应能看到绿色边框）'); return; }
   if(!selParse.hasBox){ alert('请先开启“框选模式”并拖拽一个解析选框'); return; }
 
@@ -1158,6 +1163,28 @@ document.getElementById('parseBtn').addEventListener('click', ()=>{
   selParse.hasBox = false; selParse.active = false;
   redrawUiOverlay();
 });
+
+if(deleteSelBtn){
+  deleteSelBtn.addEventListener('click', ()=>{
+    if(!selParse.hasBox){
+      alert('请先开启“框选模式”并拖拽一个选框');
+      return;
+    }
+    const changed = deleteMarkedInSelParse();
+    if(!changed) alert('选区内没有可删除的图案');
+  });
+}
+if(undoBtn){
+  undoBtn.addEventListener('click', ()=>{
+    if(pastePreview.active){
+      cancelPastePreview();
+      moveArmed = false;
+      moveSourceRect = null;
+      return;
+    }
+    undoLast();
+  });
+}
 
 document.getElementById('clearXBtn').addEventListener('click',()=>{
   if(marked.size === 0) return;
