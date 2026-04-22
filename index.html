@@ -201,6 +201,9 @@ input.slashToggle:checked::after{
       复制：关
     </button>
     <button id="transformBtn" title="Shift+V 循环切换">变换：原样</button>
+    <button id="copySelectionBtn" title="复制当前蓝框选区">复制选区</button>
+    <button id="pasteClipboardBtn" title="粘贴当前剪贴板">粘贴</button>
+    <button id="moveSelectionBtn" title="移动当前蓝框选区（复制后在新位置放下并删除原位置）">移动</button>
 
     <div class="sep"></div>
 
@@ -277,6 +280,11 @@ input.slashToggle:checked::after{
         <div class="stamp-toolbar">
           <input id="stampName" type="text" placeholder="素材名（如：T/鱼01）" title="复制后可保存为素材；也可直接按 Cmd+Shift+S 保存" style="width:200px;" />
           <button id="saveStampBtn" title="将当前剪贴板保存为素材（也可用 Cmd+Shift+S）">保存素材</button>
+          <button id="exportStampsBtn" class="btn-light" title="导出当前设备中的全部素材库 JSON">导出素材库</button>
+          <label class="btn-light" style="display:inline-flex;align-items:center;gap:6px; padding:6px 10px; cursor:pointer;" title="导入素材库 JSON 到当前设备">
+            <span>导入素材库</span>
+            <input id="importStampsInput" type="file" accept="application/json" style="display:none;" />
+          </label>
           <button id="stampSortBtn" class="btn-light" title="切换排序：时间/名称">排序：时间</button>
           <select id="stampGroupFilter" title="按分类过滤" style="min-width:140px;"></select>
         </div>
@@ -791,6 +799,65 @@ window.addEventListener('mouseup', ()=>{
   if(dragging){ dragging=false; imgCanvas.style.cursor='grab'; }
 });
 
+let imgTouchState = null;
+imgCanvas.addEventListener('touchstart', (e)=>{
+  if(!moveMode || !imageEl) return;
+  if(e.touches.length === 1){
+    e.preventDefault();
+    const pt = canvasPointFromEvent(e, imgCanvas);
+    imgTouchState = { mode:'drag', startX:pt.x, startY:pt.y, dx:imgState.dx, dy:imgState.dy };
+  }else if(e.touches.length === 2){
+    e.preventDefault();
+    const [t1,t2] = e.touches;
+    imgTouchState = {
+      mode:'pinch',
+      distance: distance(t1,t2),
+      midpoint: midpoint(t1,t2),
+      scale: imgState.scale,
+      dx: imgState.dx,
+      dy: imgState.dy,
+      dw: imgState.dw,
+      dh: imgState.dh
+    };
+  }
+}, {passive:false});
+imgCanvas.addEventListener('touchmove', (e)=>{
+  if(!moveMode || !imageEl || !imgTouchState) return;
+  e.preventDefault();
+  if(imgTouchState.mode === 'drag' && e.touches.length === 1){
+    const pt = canvasPointFromEvent(e, imgCanvas);
+    imgState.dx = Math.round(imgTouchState.dx + (pt.x - imgTouchState.startX));
+    imgState.dy = Math.round(imgTouchState.dy + (pt.y - imgTouchState.startY));
+    drawImageTransformed();
+  }else if(imgTouchState.mode === 'pinch' && e.touches.length === 2){
+    const [t1,t2] = e.touches;
+    const mid = midpoint(t1,t2);
+    const dist = distance(t1,t2);
+    let newScale = imgTouchState.scale * (dist / Math.max(1, imgTouchState.distance));
+    newScale = clampScaleToRuleA(Math.max(0.1, newScale));
+    const prevMid = imgTouchState.midpoint;
+    const relX = (prevMid.x - imgTouchState.dx) / Math.max(1, imgTouchState.dw);
+    const relY = (prevMid.y - imgTouchState.dy) / Math.max(1, imgTouchState.dh);
+    const newDw = Math.round(imageEl.width * newScale);
+    const newDh = Math.round(imageEl.height * newScale);
+    imgState.scale = newScale;
+    imgState.dw = newDw; imgState.dh = newDh;
+    imgState.dx = Math.round(mid.x - relX * newDw);
+    imgState.dy = Math.round(mid.y - relY * newDh);
+    imgState.dx += Math.round(mid.x - prevMid.x);
+    imgState.dy += Math.round(mid.y - prevMid.y);
+    imgScaleRange.value = Math.round(newScale*100);
+    imgScaleVal.textContent = `${imgScaleRange.value}%`;
+    drawImageTransformed();
+    imgTouchState = {
+      mode:'pinch', distance:dist, midpoint:mid, scale:imgState.scale,
+      dx:imgState.dx, dy:imgState.dy, dw:imgState.dw, dh:imgState.dh
+    };
+  }
+}, {passive:false});
+imgCanvas.addEventListener('touchend', ()=>{ imgTouchState = null; }, {passive:true});
+imgCanvas.addEventListener('touchcancel', ()=>{ imgTouchState = null; }, {passive:true});
+
 imgCanvas.addEventListener('wheel', (e)=>{
   if(!moveMode || !imageEl) return;
   e.preventDefault();
@@ -833,6 +900,9 @@ const modeBtn=document.getElementById('modeSelect');
 let modeSelect=false;
 
 const copyModeBtn = document.getElementById('copyModeBtn');
+const copySelectionBtn = document.getElementById('copySelectionBtn');
+const pasteClipboardBtn = document.getElementById('pasteClipboardBtn');
+const moveSelectionBtn = document.getElementById('moveSelectionBtn');
 let copyMode=false;
 
 /** ======= 选择框数据 ======= **/
@@ -1291,10 +1361,71 @@ window.addEventListener('mouseup',()=>{
   if(copyMode && selCopy.active){ selCopy.active=false; clampSelObj(selCopy); redrawUiOverlay(); }
 });
 
+uiCanvas.addEventListener('touchstart',(e)=>{
+  const pt = canvasPointFromEvent(e, uiCanvas);
+  if(pastePreview.active){
+    e.preventDefault();
+    const {col,row} = colRowFromPoint(pt);
+    pastePreview.anchor = getCenteredAnchorFromCursor(col, row);
+    recomputePastePreviewCells();
+    return;
+  }
+  if(modeSelect){
+    e.preventDefault();
+    selParse.active=true; selParse.hasBox=true;
+    selParse.x0=selParse.x1=pt.x; selParse.y0=selParse.y1=pt.y;
+    clampSelObj(selParse); redrawUiOverlay();
+    return;
+  }
+  if(copyMode){
+    e.preventDefault();
+    selCopy.active=true; selCopy.hasBox=true;
+    selCopy.x0=selCopy.x1=pt.x; selCopy.y0=selCopy.y1=pt.y;
+    clampSelObj(selCopy); redrawUiOverlay();
+    return;
+  }
+}, {passive:false});
+
+uiCanvas.addEventListener('touchmove',(e)=>{
+  const pt = canvasPointFromEvent(e, uiCanvas);
+  if(pastePreview.active){
+    e.preventDefault();
+    const {col,row} = colRowFromPoint(pt);
+    pastePreview.anchor = getCenteredAnchorFromCursor(col, row);
+    recomputePastePreviewCells();
+    return;
+  }
+  if(modeSelect && selParse.active){
+    e.preventDefault();
+    selParse.x1=pt.x; selParse.y1=pt.y; clampSelObj(selParse); redrawUiOverlay();
+    return;
+  }
+  if(copyMode && selCopy.active){
+    e.preventDefault();
+    selCopy.x1=pt.x; selCopy.y1=pt.y; clampSelObj(selCopy); redrawUiOverlay();
+    return;
+  }
+}, {passive:false});
+
+uiCanvas.addEventListener('touchend',(e)=>{
+  if(pastePreview.active){
+    commitPaste();
+    return;
+  }
+  if(modeSelect && selParse.active){ selParse.active=false; clampSelObj(selParse); redrawUiOverlay(); return; }
+  if(copyMode && selCopy.active){ selCopy.active=false; clampSelObj(selCopy); redrawUiOverlay(); return; }
+}, {passive:false});
+uiCanvas.addEventListener('touchcancel',()=>{
+  if(modeSelect && selParse.active){ selParse.active=false; redrawUiOverlay(); }
+  if(copyMode && selCopy.active){ selCopy.active=false; redrawUiOverlay(); }
+}, {passive:true});
+
 /** ======= 素材库 & 自动修复旧数据 ======= **/
 const STAMP_LS_KEY = 'grid_editor_stamps_v1';
 const stampNameInput = document.getElementById('stampName');
 const saveStampBtn = document.getElementById('saveStampBtn');
+const exportStampsBtn = document.getElementById('exportStampsBtn');
+const importStampsInput = document.getElementById('importStampsInput');
 const stampGrid = document.getElementById('stampGrid');
 const stampGroupFilter = document.getElementById('stampGroupFilter');
 
@@ -1334,6 +1465,16 @@ function getNowStamp(){
   const d = new Date();
   const pad = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function downloadJSON(filename, data){
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
 }
 function normalizeClipboard(clip){
   if(!clip || typeof clip !== 'object') return null;
@@ -1494,6 +1635,49 @@ function renderStampLibrary(){
     });
     stampGrid.appendChild(card);
   }
+}
+
+function exportStampsLibrary(){
+  const list = loadStampsFromStorage();
+  downloadJSON('grid_stamps.json', list);
+}
+async function importStampsLibraryFromFile(file){
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const incomingRaw = JSON.parse(text);
+    const incoming = Array.isArray(incomingRaw) ? incomingRaw : [incomingRaw];
+    const current = loadStampsFromStorage();
+    const map = new Map(current.map(v => [v.name, v]));
+    for(const raw of incoming){
+      if(!raw || !raw.name || !raw.clip) continue;
+      const clip = normalizeClipboard(raw.clip);
+      if(!clip) continue;
+      const parsed = parseStampName(raw.name);
+      map.set(raw.name, {
+        id: raw.id || getUUID(),
+        name: raw.name,
+        group: raw.group || parsed.group,
+        displayName: raw.displayName || parsed.displayName,
+        clip,
+        createdAt: raw.createdAt || getNowStamp(),
+        updatedAt: raw.updatedAt || getNowStamp()
+      });
+    }
+    saveStampsToStorage(Array.from(map.values()));
+    renderStampLibrary();
+    showToast('素材库已导入');
+  }catch(err){
+    alert('素材库导入失败');
+  }
+}
+if(exportStampsBtn){ exportStampsBtn.addEventListener('click', exportStampsLibrary); }
+if(importStampsInput){
+  importStampsInput.addEventListener('change', async (e)=>{
+    const file = e.target.files?.[0];
+    if(file) await importStampsLibraryFromFile(file);
+    importStampsInput.value = '';
+  });
 }
 
 saveStampBtn.addEventListener('click', ()=>{
@@ -1955,6 +2139,37 @@ function setCopyMode(on){
 modeBtn.addEventListener('click', ()=> setModeSelect(!modeSelect));
 copyModeBtn.addEventListener('click', ()=> setCopyMode(!copyMode));
 
+function copyCurrentSelectionToClipboard(){
+  if(!copyMode){ setCopyMode(true); }
+  const clip = makeClipboardFromSelection();
+  if(clip && clip.cells.length > 0){
+    clipboard = clip;
+    moveArmed = false;
+    showToast('已复制选区');
+  }else{
+    showToast('选区为空，无法复制');
+  }
+}
+function pasteClipboardAtTouch(){
+  if(!copyMode){ setCopyMode(true); }
+  if(clipboard) startPastePreview();
+  else showToast('剪贴板为空');
+}
+function moveCurrentSelection(){
+  if(!copyMode){ setCopyMode(true); }
+  const clip = makeClipboardFromSelection();
+  if(clip && clip.cells.length > 0){
+    clipboard = clip;
+    moveArmed = true;
+    startPastePreview();
+    showToast('请选择新位置');
+  }else{
+    showToast('选区为空，无法移动');
+  }
+}
+if(copySelectionBtn){ copySelectionBtn.addEventListener('click', copyCurrentSelectionToClipboard); }
+if(pasteClipboardBtn){ pasteClipboardBtn.addEventListener('click', pasteClipboardAtTouch); }
+if(moveSelectionBtn){ moveSelectionBtn.addEventListener('click', moveCurrentSelection); }
 
 /** ======= iPad / touch local zoom & gestures ======= **/
 const IS_TOUCH_DEVICE = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -2112,7 +2327,7 @@ function midpoint(t1, t2){ return { x:(t1.clientX + t2.clientX)/2, y:(t1.clientY
 function distance(t1, t2){ return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY); }
 
 function startPinchGesture(e){
-  if(isFullView) return;
+  if(isFullView || moveMode) return;
   if(e.touches.length !== 2) return;
   const [t1, t2] = e.touches;
   pinchState = {
@@ -2125,7 +2340,7 @@ function startPinchGesture(e){
 }
 
 function movePinchGesture(e){
-  if(!pinchState || e.touches.length !== 2 || isFullView) return;
+  if(!pinchState || e.touches.length !== 2 || isFullView || moveMode) return;
   e.preventDefault();
   const [t1, t2] = e.touches;
   const mid = midpoint(t1, t2);
